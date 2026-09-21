@@ -165,6 +165,16 @@ function cmdCheck() {
   process.exit(r.status ?? 0);
 }
 
+async function cmdApp() {
+  ensureScaffold();                       // so view.html/blueprint.json render for review
+  const { createApp } = await import('./server.mjs');
+  const app = createApp({ cwd: process.cwd() });
+  const port = await app.listen(Number(opt('port')) || 8899);
+  const url = `http://127.0.0.1:${port}/`;
+  console.log(`SmartMonkey app: ${url}  (Ctrl-C to stop)`);
+  openBrowser(url);
+}
+
 function help() {
   console.log(`smartmonkey — local client for SmartMonkey QA blueprinting (your source never leaves your machine)
 
@@ -174,6 +184,7 @@ function help() {
                    [--key K]     run embedded with your API key (no CLI needed)
                    [--provider P] anthropic|openai|gemini (else inferred from the key/env)
                    [--model M] [--dry-run] [--port N]
+  smartmonkey app [--port N]   run the local app (setup + build the blueprint in your browser)
   smartmonkey view [--port N]  open the local viewer + case editor
   smartmonkey check [--watch]  freshness — has the code moved since the blueprint?
                    [--strict] [--list]
@@ -186,6 +197,7 @@ blueprint.json / cases.json you approve is ever shared.`);
 switch (cmd) {
   case 'init': scaffold(); console.log(`scaffolded ${KIT_DIR}`); break;
   case 'run': cmdRun().catch(e => { console.error(e.message); process.exit(2); }); break;
+  case 'app': cmdApp().catch(e => { console.error(e.message); process.exit(2); }); break;
   case 'view': ensureScaffold(); serve(Number(opt('port')) || 8899); break;
   case 'check': cmdCheck(); break;
   case 'drivers': cmdDrivers(); break;
