@@ -1,15 +1,15 @@
 # smartmonkey-client
 
 The local client for **SmartMonkey** QA. One command instead of loose files: it
-scaffolds the profiling kit into your repo, runs the profiling with **your own
+scaffolds the blueprint kit into your repo, builds the blueprint with **your own
 AI**, serves a viewer + case editor, and checks freshness — all on your machine.
-**Your source never leaves your machine**; only the `profile.json` / `cases.json`
+**Your source never leaves your machine**; only the `blueprint.json` / `cases.json`
 you approve is ever shared.
 
 ```
-npx smartmonkey-client run          # profile (auto-picks your logged-in AI CLI), then opens the editor
+npx smartmonkey-client run          # blueprint (auto-picks your logged-in AI CLI), then opens the editor
 npx smartmonkey-client view         # open the local viewer + case editor
-npx smartmonkey-client check --watch # has the code moved since the profile was built?
+npx smartmonkey-client check --watch # has the code moved since the blueprint was built?
 npx smartmonkey-client drivers      # which AI CLIs are available here
 npx smartmonkey-client init         # just scaffold ./smartmonkey/
 ```
@@ -23,12 +23,12 @@ smartmonkey run
 
 ## The AI runs on your side
 
-`smartmonkey run` runs the profiling with **your own AI**, on your machine, two
+`smartmonkey run` builds the blueprint with **your own AI**, on your machine, two
 ways — it auto-picks whichever fits:
 
 **A logged-in CLI you already have** — **Claude Code, OpenAI Codex, Cursor, or
-Gemini**. `smartmonkey run` hands it the profiling prompt in your repo; it reads
-your code and writes `smartmonkey/profile.json` (and `cases.json` if you ask).
+Gemini**. `smartmonkey run` hands it the blueprint prompt in your repo; it reads
+your code and writes `smartmonkey/blueprint.json` (and `cases.json` if you ask).
 
 - `--driver <claude|codex|cursor|gemini>` — force one instead of auto-picking.
 
@@ -51,15 +51,15 @@ environment), and each has a sensible default model you can override:
 - `--dry-run` — show what it would launch without running it.
 
 Either way: we never see your code. The AI runs on your machine and only the
-`profile.json` / `cases.json` you approve is ever shared.
+`blueprint.json` / `cases.json` you approve is ever shared.
 
 ## Privacy
 
-The profile carries **no source**: no file paths, no line numbers, no
+The blueprint carries **no source**: no file paths, no line numbers, no
 class/package names, no pasted code — only your app's behaviour described in
 words, anchored to the build commit. Secrets are referenced (`env:NAME`), never
 embedded. `smartmonkey check` diffs your working tree against that commit
-locally to tell you whether the profile is still fresh.
+locally to tell you whether the blueprint is still fresh.
 
 ## Develop
 
@@ -68,7 +68,7 @@ npm test        # runs the embedded-driver + provider-translator unit tests (no 
 ```
 
 Zero runtime dependencies (Node ≥ 18 builtins only). The `assets/` directory is
-the bundled profiling kit (prompt, viewer/editor, freshness checker); it is kept
+the bundled blueprint kit (prompt, viewer/editor, freshness checker); it is kept
 in sync from the SmartMonkey server's own copy.
 
 ## License

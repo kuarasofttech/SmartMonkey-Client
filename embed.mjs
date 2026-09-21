@@ -1,8 +1,8 @@
 /**
- * Embedded driver (stage 2b) — run the profiling with the customer's API KEY,
+ * Embedded driver (stage 2b) — build the blueprint with the customer's API KEY,
  * no external CLI. A small, sandboxed agent loop: the model reads the repo
  * through read-only tools, interviews the owner through `ask_user`, and writes
- * ONLY smartmonkey/profile.json / cases.json. Nothing else on disk is touched,
+ * ONLY smartmonkey/blueprint.json / cases.json. Nothing else on disk is touched,
  * and nothing leaves the machine but those files (which the owner reviews).
  *
  * The provider call is INJECTED (`callModel`) so the loop is testable with a
@@ -14,7 +14,7 @@ import { spawnSync } from 'node:child_process';
 import { resolve, join, relative, extname } from 'node:path';
 import { createInterface } from 'node:readline';
 
-export const SYSTEM = `You are SmartMonkey's profiler, running as a LOCAL tool inside the user's repository on their own machine. Follow the instructions in the user's first message exactly. You have tools to read the repo, run read-only git, ask the user questions, and WRITE the outputs. Produce smartmonkey/profile.json (and cases.json if asked) by calling write_file — that is the only way to save your result; do not print the JSON. Never write anything except under smartmonkey/. The user's source must never appear in the output: no file paths, no pasted code — only the behaviour, described in words.`;
+export const SYSTEM = `You are SmartMonkey's blueprint builder, running as a LOCAL tool inside the user's repository on their own machine. Follow the instructions in the user's first message exactly. You have tools to read the repo, run read-only git, ask the user questions, and WRITE the outputs. Produce smartmonkey/blueprint.json (and cases.json if asked) by calling write_file — that is the only way to save your result; do not print the JSON. Never write anything except under smartmonkey/. The user's source must never appear in the output: no file paths, no pasted code — only the behaviour, described in words.`;
 
 // Anthropic tool definitions (the shape the loop passes to callModel).
 export const TOOLS = [
@@ -23,7 +23,7 @@ export const TOOLS = [
   { name: 'search', description: 'Search the repo for a substring/regex; returns matching path:line: text.', input_schema: { type: 'object', properties: { query: { type: 'string' }, path: { type: 'string' } }, required: ['query'] } },
   { name: 'git', description: 'Run a READ-ONLY git command (rev-parse, log, diff, ls-files, show, status, branch).', input_schema: { type: 'object', properties: { args: { type: 'array', items: { type: 'string' } } }, required: ['args'] } },
   { name: 'ask_user', description: 'Ask the project owner a question and get their answer. Provide options for a menu when the answer is a choice.', input_schema: { type: 'object', properties: { question: { type: 'string' }, options: { type: 'array', items: { type: 'string' } } }, required: ['question'] } },
-  { name: 'write_file', description: 'Write an output file. Only paths under smartmonkey/ are allowed (profile.json, cases.json).', input_schema: { type: 'object', properties: { path: { type: 'string' }, contents: { type: 'string' } }, required: ['path', 'contents'] } },
+  { name: 'write_file', description: 'Write an output file. Only paths under smartmonkey/ are allowed (blueprint.json, cases.json).', input_schema: { type: 'object', properties: { path: { type: 'string' }, contents: { type: 'string' } }, required: ['path', 'contents'] } },
 ];
 
 const IGNORE = /(^|\/)(\.git|node_modules|build|dist|\.gradle|\.idea|DerivedData|Pods|\.next|out)(\/|$)/;
@@ -289,6 +289,6 @@ export async function runAgent({ prompt, callModel, runTool, onText = () => {}, 
   return { done: false, turns: maxTurns, reason: 'hit max turns' };
 }
 
-/** Convenience: does profile.json exist under cwd/smartmonkey? */
-export function producedProfile(cwd) { return existsSync(join(resolve(cwd), 'smartmonkey', 'profile.json')); }
+/** Convenience: does blueprint.json exist under cwd/smartmonkey? */
+export function producedBlueprint(cwd) { return existsSync(join(resolve(cwd), 'smartmonkey', 'blueprint.json')); }
 export { statSync, extname };

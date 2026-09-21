@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>SmartMonkey Profile</title>
-<meta name="description" content="A local, static viewer for a SmartMonkey QA profile — shows exactly what was captured and what leaves your machine.">
+<title>SmartMonkey Blueprint</title>
+<meta name="description" content="A local, static viewer for a SmartMonkey QA blueprint — shows exactly what was captured and what leaves your machine.">
 <style>
   :root {
     --bg: #f6f7f9; --panel: #ffffff; --ink: #1a1d21; --muted: #5b6570;
@@ -106,7 +106,7 @@
 <div class="wrap">
   <header class="top">
     <span class="logo"><b>Smart</b>Monkey</span>
-    <span class="sub">QA profile — a local view of what this project told the tester</span>
+    <span class="sub">QA blueprint — a local view of what this project told the tester</span>
   </header>
 
   <div id="cases"></div>
@@ -114,7 +114,7 @@
 
   <div id="loader" class="card" style="display:none">
     <div class="drop" id="drop">
-      Drop your <b>profile.json</b> here, or <label for="file">choose a file</label>.
+      Drop your <b>blueprint.json</b> here, or <label for="file">choose a file</label>.
       <input type="file" id="file" accept="application/json,.json">
       <p class="sub" style="margin-top:10px">Nothing is uploaded — this page reads the file in your browser only.</p>
     </div>
@@ -126,7 +126,7 @@
 <script>
 "use strict";
 
-// ---- tolerant accessors: the raw profile.json uses forgiving shapes ----------
+// ---- tolerant accessors: the raw blueprint.json uses forgiving shapes ----------
 function txt(v) {
   if (v == null) return "";
   if (typeof v === "string") return v;
@@ -151,12 +151,12 @@ function renderTrust(p) {
   return `<div class="card trust"><h2>What SmartMonkey sees — and what it never does</h2>
     <div class="cols">
       <div class="box get"><h3>✓ What you deliver</h3><ul>
-        <li>This profile: your app's builds, screens, flows, reset steps</li>
+        <li>This blueprint: your app's builds, screens, flows, reset steps</li>
         <li>The business rules and limits you chose to document</li>
         <li>The dangers you flagged, so the tester avoids them</li>
       </ul></div>
       <div class="box never"><h3>✕ What never leaves your machine</h3><ul>
-        <li>Your source code — the tester reads it here, and only the profile below is shared</li>
+        <li>Your source code — the tester reads it here, and only the blueprint below is shared</li>
         <li>Any secret — accounts carry <span class="src">env:</span>-style <em>references</em>${secretRefs ? ` (${secretRefs} here)` : ""}, never values</li>
         <li>This viewer uploads nothing; it reads the file in your browser only</li>
       </ul></div>
@@ -303,17 +303,17 @@ function render(p) {
     ${renderList("Existing tests", p.existingTests, t => `<div class="row"><div class="head"><span class="name">${esc(t.where || t.format || "tests")}</span>${badge("b-mute", t.format || "other")}${t.count != null ? `<span class="src">${esc(t.count)} tests</span>` : ""}</div>${t.formatDetail ? `<p class="desc">${esc(txt(t.formatDetail))}</p>` : ""}</div>`)}
     ${renderFindings(p)}
     ${renderOpenQuestions(p)}
-    <details class="raw"><summary>View the raw profile.json (exactly what is delivered)</summary><pre>${esc(JSON.stringify(p, null, 2))}</pre></details>
+    <details class="raw"><summary>View the raw blueprint.json (exactly what is delivered)</summary><pre>${esc(JSON.stringify(p, null, 2))}</pre></details>
   `;
   document.getElementById("app").innerHTML = html;
   document.getElementById("loader").style.display = "none";
-  PROFILE = p; STATES = computeStates(p); renderCases();
+  BLUEPRINT = p; STATES = computeStates(p); renderCases();
 }
 
 // ---- cases editor: view / edit / add / delete, then download cases.json ------
 // The static kit's version of "generate on your side, see and edit easily". It
 // never uploads; you download the edited cases.json and import it in SmartMonkey.
-let PROFILE = null, CASES = [], STATES = [];
+let BLUEPRINT = null, CASES = [], STATES = [];
 
 function computeStates(p) {
   const s = ["fresh", "logged_out"];
@@ -378,7 +378,7 @@ function caseCard(c, i) {
 function renderCases() {
   const mount = document.getElementById("cases");
   if (!mount) return;
-  if (!CASES.length && !PROFILE) { mount.innerHTML = ""; return; }
+  if (!CASES.length && !BLUEPRINT) { mount.innerHTML = ""; return; }
   mount.innerHTML = `<div class="card"><h2>Test cases <span class="n">${CASES.length}</span>
       <span style="margin-left:auto;display:inline-flex;gap:8px">
         <button class="tc-btn" id="tc-add">+ Add case</button>
@@ -429,7 +429,7 @@ function loadCases(data) {
 }
 
 // ---- loading: fetch siblings (http) → else drag/drop / file-picker -----------
-// Detect what was dropped: a profile (has smartmonkeyProfile) vs cases (array / {cases}).
+// Detect what was dropped: a blueprint (has smartmonkeyBlueprint) vs cases (array / {cases}).
 function tryLoad(json) {
   let obj;
   try { obj = typeof json === "string" ? JSON.parse(json) : json; }
@@ -451,7 +451,7 @@ function wireLoader() {
 (function init() {
   wireLoader();
   const params = new URLSearchParams(location.search);
-  const srcName = params.get("src") || "profile.json";
+  const srcName = params.get("src") || "blueprint.json";
   // Works when served over http(s); file:// fetch is blocked, so fall back to the picker.
   fetch(srcName).then(r => { if (!r.ok) throw 0; return r.text(); }).then(tryLoad).catch(showLoader);
   // Also pick up a sibling cases.json if it's there (http only).

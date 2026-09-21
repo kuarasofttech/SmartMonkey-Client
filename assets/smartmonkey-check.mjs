@@ -1,16 +1,16 @@
 #!/usr/bin/env node
 /**
- * smartmonkey check — has the code moved since this QA profile was built?
+ * smartmonkey check — has the code moved since this QA blueprint was built?
  *
- *   node smartmonkey-check.mjs profile.json [--repo <dir>] [--strict] [--list] [--watch]
+ *   node smartmonkey-check.mjs blueprint.json [--repo <dir>] [--strict] [--list] [--watch]
  *
- * Self-contained (no dependencies). The profile carries no file paths — your
+ * Self-contained (no dependencies). The blueprint carries no file paths — your
  * source never leaves your machine — so freshness is anchored to the build
- * commit (`profile.commit`). This runs in YOUR repo and diffs the working tree
+ * commit (`blueprint.commit`). This runs in YOUR repo and diffs the working tree
  * against that commit:
  *
- *   fresh   → nothing changed since the profile was built
- *   moved   → the code advanced; skim the changed files and re-profile if any
+ *   fresh   → nothing changed since the blueprint was built
+ *   moved   → the code advanced; skim the changed files and re-blueprint if any
  *             affect how the app is tested
  *   unknown → no build commit stamped
  *
@@ -24,24 +24,24 @@ import { execFileSync } from 'node:child_process';
 import { dirname, resolve, basename } from 'node:path';
 
 const args = process.argv.slice(2);
-const profilePath = args.find(a => !a.startsWith('--'));
-if (!profilePath) {
-  console.error('usage: node smartmonkey-check.mjs <profile.json> [--repo <dir>] [--strict] [--list] [--watch]');
+const blueprintPath = args.find(a => !a.startsWith('--'));
+if (!blueprintPath) {
+  console.error('usage: node smartmonkey-check.mjs <blueprint.json> [--repo <dir>] [--strict] [--list] [--watch]');
   process.exit(2);
 }
 const repoIdx = args.indexOf('--repo');
-const repo = repoIdx >= 0 ? args[repoIdx + 1] : dirname(resolve(profilePath));
+const repo = repoIdx >= 0 ? args[repoIdx + 1] : dirname(resolve(blueprintPath));
 const watching = args.includes('--watch');
 
 /** One check. Returns the exit code it would use (0 fresh/unknown, 3 moved). */
 function runOnce() {
-  let profile;
-  try { profile = JSON.parse(readFileSync(profilePath, 'utf8')); }
-  catch (e) { console.error(`cannot read ${profilePath}: ${e.message}`); return 2; }
+  let blueprint;
+  try { blueprint = JSON.parse(readFileSync(blueprintPath, 'utf8')); }
+  catch (e) { console.error(`cannot read ${blueprintPath}: ${e.message}`); return 2; }
 
-  const commit = typeof profile.commit === 'string' ? profile.commit.trim().split(/\s/)[0] : undefined;
+  const commit = typeof blueprint.commit === 'string' ? blueprint.commit.trim().split(/\s/)[0] : undefined;
   if (!commit) {
-    console.log('? UNKNOWN — no build commit is stamped in the profile. Re-run the prompt to enable freshness checks.');
+    console.log('? UNKNOWN — no build commit is stamped in the blueprint. Re-run the prompt to enable freshness checks.');
     return 0;
   }
   let changed;
@@ -53,11 +53,11 @@ function runOnce() {
     return 2;
   }
   if (!changed.length) {
-    console.log('✓ FRESH — nothing has changed since this profile was built.');
+    console.log('✓ FRESH — nothing has changed since this blueprint was built.');
     console.log(`  build commit: ${commit.slice(0, 12)}   files changed since: 0`);
     return 0;
   }
-  console.log('⚠ MOVED — the code has changed since the profile was built. Skim the changes; re-run the prompt if any affect how the app is tested.');
+  console.log('⚠ MOVED — the code has changed since the blueprint was built. Skim the changes; re-run the prompt if any affect how the app is tested.');
   console.log(`  build commit: ${commit.slice(0, 12)}   files changed since: ${changed.length}`);
   if (args.includes('--list')) {
     console.log('  changed (local to you — not uploaded):');
@@ -75,7 +75,7 @@ if (!watching) {
 // --watch: check once, then re-check (debounced) on any repo change. Ignore the
 // usual noise so we don't loop on our own reads or git's internals.
 const IGNORE = /(^|\/)(\.git|node_modules|build|dist|\.gradle|\.idea|DerivedData|Pods)(\/|$)/;
-const label = basename(resolve(profilePath));
+const label = basename(resolve(blueprintPath));
 console.log(`watching ${repo} — re-checking ${label} on change (Ctrl-C to stop)\n`);
 runOnce();
 

@@ -37,21 +37,21 @@ await check('sandbox: read escaping the repo, and any write outside smartmonkey/
   await assert.rejects(runTool('git', { args: ['push', 'origin'] }), /not allowed/);   // read-only subset
 });
 
-await check('the loop runs tools, feeds results back, writes profile.json, and stops', async () => {
+await check('the loop runs tools, feeds results back, writes blueprint.json, and stops', async () => {
   let turn = 0; const fedBack = [];
   const callModel = async (messages) => {
     const last = messages[messages.length - 1];
     if (last.role === 'user' && Array.isArray(last.content)) fedBack.push(last.content.map(c => c.content).join(' | '));
     turn++;
     if (turn === 1) return { content: [{ type: 'text', text: 'reading' }, { type: 'tool_use', id: 't1', name: 'read_file', input: { path: 'README.md' } }], stop_reason: 'tool_use' };
-    if (turn === 2) return { content: [{ type: 'tool_use', id: 't2', name: 'write_file', input: { path: 'smartmonkey/profile.json', contents: JSON.stringify({ smartmonkeyProfile: 1, project: { name: 'x' } }) } }], stop_reason: 'tool_use' };
+    if (turn === 2) return { content: [{ type: 'tool_use', id: 't2', name: 'write_file', input: { path: 'smartmonkey/blueprint.json', contents: JSON.stringify({ smartmonkeyBlueprint: 1, project: { name: 'x' } }) } }], stop_reason: 'tool_use' };
     return { content: [{ type: 'text', text: 'done' }], stop_reason: 'end_turn' };
   };
-  const res = await runAgent({ prompt: 'profile this repo', callModel, runTool, maxTurns: 10 });
+  const res = await runAgent({ prompt: 'blueprint this repo', callModel, runTool, maxTurns: 10 });
   assert.equal(res.done, true);
   assert.equal(res.turns, 3);
-  assert.ok(existsSync(join(dir, 'smartmonkey', 'profile.json')), 'profile.json was written');
-  assert.match(readFileSync(join(dir, 'smartmonkey', 'profile.json'), 'utf8'), /smartmonkeyProfile/);
+  assert.ok(existsSync(join(dir, 'smartmonkey', 'blueprint.json')), 'blueprint.json was written');
+  assert.match(readFileSync(join(dir, 'smartmonkey', 'blueprint.json'), 'utf8'), /smartmonkeyBlueprint/);
   assert.ok(fedBack.some(s => /hello world/.test(s)), 'the read_file result was fed back to the model');
 });
 
@@ -73,7 +73,7 @@ await check('a tool error becomes a tool_result, never crashes the loop', async 
 // A representative loop history: initial prompt → assistant tool_use → tool_result.
 const TOOLS = [{ name: 'read_file', description: 'read', input_schema: { type: 'object', properties: { path: { type: 'string' } }, required: ['path'] } }];
 const history = [
-  { role: 'user', content: 'profile this repo' },
+  { role: 'user', content: 'blueprint this repo' },
   { role: 'assistant', content: [{ type: 'text', text: 'reading' }, { type: 'tool_use', id: 'call_1', name: 'read_file', input: { path: 'README.md' } }] },
   { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'call_1', content: 'hello world' }] },
 ];
@@ -81,7 +81,7 @@ const history = [
 await check('toOpenAI maps system+prompt, assistant tool_use → tool_calls, tool_result → role:tool with matching id', () => {
   const { messages, tools } = toOpenAI('SYS', history, TOOLS);
   assert.deepEqual(messages[0], { role: 'system', content: 'SYS' });
-  assert.deepEqual(messages[1], { role: 'user', content: 'profile this repo' });
+  assert.deepEqual(messages[1], { role: 'user', content: 'blueprint this repo' });
   const asst = messages.find(m => m.role === 'assistant');
   assert.equal(asst.tool_calls[0].id, 'call_1');
   assert.equal(asst.tool_calls[0].function.name, 'read_file');
@@ -104,7 +104,7 @@ await check('fromOpenAI: tool_calls → tool_use (stop tool_use); text-only → 
 await check('toGemini: system_instruction + role user/model, functionCall part, functionResponse carries the name from the id map', () => {
   const g = toGemini('SYS', history, TOOLS);
   assert.equal(g.system_instruction.parts[0].text, 'SYS');
-  assert.deepEqual(g.contents[0], { role: 'user', parts: [{ text: 'profile this repo' }] });
+  assert.deepEqual(g.contents[0], { role: 'user', parts: [{ text: 'blueprint this repo' }] });
   const model = g.contents.find(c => c.role === 'model');
   const fc = model.parts.find(p => p.functionCall).functionCall;
   assert.equal(fc.name, 'read_file');

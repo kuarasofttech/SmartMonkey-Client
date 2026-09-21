@@ -1,10 +1,10 @@
-# Build the SmartMonkey QA profile for this project
+# Build the SmartMonkey QA blueprint for this project
 
-You are working inside a codebase. Produce **`smartmonkey/profile.json`** (create the
+You are working inside a codebase. Produce **`smartmonkey/blueprint.json`** (create the
 `smartmonkey/` folder at the repo root if it isn't there): the machine-readable answer to
 everything an automated tester must know before it can drive this app on a real device.
-The folder also holds `view.html`, a viewer the project owner opens to read the profile —
-leave it untouched; you only write `profile.json`.
+The folder also holds `view.html`, a viewer the project owner opens to read the blueprint —
+leave it untouched; you only write `blueprint.json`.
 
 A SmartMonkey run is an AI agent holding a phone. It can read the screen and tap, but it
 cannot guess which build is the dev one, how a tester gets past sign-in, how to put the
@@ -24,8 +24,8 @@ If you genuinely cannot ask me — you are running non-interactively / headless 
 waiting for a human. Ask them roughly in this order (skip any that a branch rules out):
 
 1. **What should this run produce?**
-   1) The profile only — SmartMonkey generates test cases later, on its side
-   2) The profile AND test cases — now, on your AI
+   1) The blueprint only — SmartMonkey generates test cases later, on its side
+   2) The blueprint AND test cases — now, on your AI
    *(default: 1)*
 
 2. **(only if you're generating cases) Where are your existing test cases?**
@@ -70,7 +70,7 @@ waiting for a human. Ask them roughly in this order (skip any that a branch rule
    code: a spec / PRD / rules doc (Confluence, Notion, a repo doc), **Figma** designs, **Jira
    stories** and their acceptance criteria, or **screenshots** of the correct/expected states.
    I read them with your access (a connector, a token, or files in the repo), and fold the
-   *behaviour* into the profile — `businessRules`, `screens`, `flows`. I keep only what a
+   *behaviour* into the blueprint — `businessRules`, `screens`, `flows`. I keep only what a
    tester needs, described in words: **no raw documents, no PII from screenshots, no secrets.**
    *(default: just the repo's own docs/screenshots.)*
 
@@ -234,22 +234,22 @@ text comes from the user's own deck, not from the app").
 
 ## Output
 
-Write `smartmonkey/profile.json` matching the schema below. **Stamp two provenance
-fields** so the profile stays honest about its age:
+Write `smartmonkey/blueprint.json` matching the schema below. **Stamp two provenance
+fields** so the blueprint stays honest about its age:
 - `generatedAt`: today's date.
 - `commit`: the repo's current commit — run `git rev-parse HEAD` and paste the sha. (If
   the tree isn't a git repo, omit it.)
 
 The `commit` is the ONLY code reference in the file. `smartmonkey check` runs later in the
 repo, diffs the working tree against it, and flags when the code has moved so the owner can
-re-profile — all locally, so no paths ever leave the machine. Then print a short summary:
+re-blueprint — all locally, so no paths ever leave the machine. Then print a short summary:
 what you found, what you had to infer, and the open questions. The owner answers the open
 questions inside SmartMonkey after uploading — so don't wait for answers here; just make
 sure each one is captured in `openQuestions[]` (with `options` when the answer is a choice).
 
 ```jsonc
 {
-  "smartmonkeyProfile": 1,
+  "smartmonkeyBlueprint": 1,
   "generatedAt": "2026-09-20",
   "commit": "<paste the output of: git rev-parse HEAD>",
   "project": { "name": "", "oneLiner": "", "platforms": ["android"], "stack": [], "locales": ["tr"] },
@@ -294,7 +294,7 @@ sure each one is captured in `openQuestions[]` (with `options` when the answer i
       "confidence": "documented" }
   ],
   "baseConditions": [
-    { "id": "base_1", "description": "Backend initialised, logged in as User 7, permissions granted, first profile ready",
+    { "id": "base_1", "description": "Backend initialised, logged in as User 7, permissions granted, first blueprint ready",
       "reset": ["backend_init"], "account": "user7",
       "given": ["notification permission granted", "location permission granted"],
       "confidence": "documented" }
@@ -355,9 +355,9 @@ a guess.
 
 ## Test cases — only if the interview said yes (question 1)
 
-Do this section **only if I chose "profile AND test cases"** (interview question 1). If I
-chose profile only, stop after the profile — SmartMonkey will generate cases later from the
-app + your profile. When you do it here, it's the same privacy (nothing but the finished
+Do this section **only if I chose "blueprint AND test cases"** (interview question 1). If I
+chose blueprint only, stop after the blueprint — SmartMonkey will generate cases later from the
+app + your blueprint. When you do it here, it's the same privacy (nothing but the finished
 cases leaves the machine) and I see and edit them before anything runs.
 
 Use the source I chose in questions 2–3. Write **`smartmonkey/cases.json`**: a JSON array of
@@ -370,7 +370,7 @@ test cases in the shape below.
    the access is yours), and translate each into one case in our shape: keep a sensible `id`
    (a Jira key like `PROJ-123` is fine), the title, and turn their steps + expected result
    into `steps[]` / `expected`.
-2. **No existing cases — draft from what you found.** Use the profile you just built: one
+2. **No existing cases — draft from what you found.** Use the blueprint you just built: one
    happy-path case per important `flow`, plus a negative case per `businessRule` that can be
    broken (wrong password, an empty required field, a limit exceeded). **Concentrate on the
    priorities I gave (`testGuidance.priorities`) and match the depth I chose
@@ -379,13 +379,13 @@ test cases in the shape below.
    Keep each case small — a handful of steps.
 
 Every case:
-- `requires` is a state from THIS profile's vocabulary — `fresh`, `logged_out`,
+- `requires` is a state from THIS blueprint's vocabulary — `fresh`, `logged_out`,
   `logged_in:<account label>`, or a `baseConditions[].id`. Omit it if the case runs from
   wherever it lands.
 - Steps are what a tester DOES, in plain words. Put reusable values in `data` and reference
   them as `{{key}}`. Every `expect` (and the case's `expected`) is a checkable observation.
 - A case has EITHER `steps` OR a one-line `goal` (the agent plans the steps itself).
-- **Same rule as the profile: no source.** A case describes behaviour on the screen — never
+- **Same rule as the blueprint: no source.** A case describes behaviour on the screen — never
   a file path, class name, or pasted code.
 
 ```json

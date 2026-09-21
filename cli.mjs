@@ -3,13 +3,13 @@
  * smartmonkey — the local client (stage 2 of project_smartmonkey_client_app).
  *
  * One tool instead of three loose files. It scaffolds the kit into your repo,
- * runs the profiling through a PLUGGABLE DRIVER, serves the viewer/editor, and
+ * builds the blueprint through a PLUGGABLE DRIVER, serves the viewer/editor, and
  * checks freshness. Your source never leaves your machine — the driver runs on
  * YOUR side (your logged-in CLI, or later your API key) and only the text you
- * approve (profile.json / cases.json) is ever shared.
+ * approve (blueprint.json / cases.json) is ever shared.
  *
  *   npx smartmonkey init            scaffold ./smartmonkey/ into this repo
- *   npx smartmonkey run             run the profiling (auto-picks a driver)
+ *   npx smartmonkey run             build the blueprint (auto-picks a driver)
  *   npx smartmonkey view            open the local viewer + case editor
  *   npx smartmonkey check [--watch] freshness — has the code moved?
  *   npx smartmonkey drivers         which AI CLIs are available here
@@ -25,13 +25,13 @@ import { dirname, join, resolve, delimiter, extname } from 'node:path';
 const __dirname = dirname(fileURLToPath(import.meta.url));
 // Kit assets: a bundled copy next to the CLI when packaged/standalone, else the
 // organiclaw repo's own src/assets during development. When bundled, EVERYTHING
-// (including the profiling prompt) lives under assets/ so the tool is fully
+// (including the blueprint prompt) lives under assets/ so the tool is fully
 // self-contained; only the dev-in-monorepo path reaches back into src/.
 const BUNDLED = existsSync(join(__dirname, 'assets'));
-const ASSETS = BUNDLED ? join(__dirname, 'assets') : resolve(__dirname, '../src/assets/profile-kit');
+const ASSETS = BUNDLED ? join(__dirname, 'assets') : resolve(__dirname, '../src/assets/blueprint-kit');
 const PROMPT_SRC = BUNDLED
-  ? join(ASSETS, 'smartmonkey-profile.md')
-  : resolve(__dirname, '../src/assets/profile-prompt/smartmonkey-profile.md');
+  ? join(ASSETS, 'smartmonkey-blueprint.md')
+  : resolve(__dirname, '../src/assets/blueprint-prompt/smartmonkey-blueprint.md');
 
 const KIT_DIR = resolve(process.cwd(), 'smartmonkey');
 const args = process.argv.slice(2);
@@ -58,7 +58,7 @@ const detectDrivers = () => DRIVERS.filter(d => onPath(d.bin));
 
 // ── scaffold ─────────────────────────────────────────────────────────────────
 const KIT_FILES = [
-  { from: PROMPT_SRC, to: 'smartmonkey-profile.md' },
+  { from: PROMPT_SRC, to: 'smartmonkey-blueprint.md' },
   { from: join(ASSETS, 'view.html'), to: 'view.html' },
   { from: join(ASSETS, 'smartmonkey-check.mjs'), to: 'smartmonkey-check.mjs' },
   { from: join(ASSETS, 'README.md'), to: 'README.md' },
@@ -67,10 +67,10 @@ function scaffold() {
   mkdirSync(KIT_DIR, { recursive: true });
   for (const f of KIT_FILES) {
     if (!existsSync(f.from)) { console.error(`missing kit asset: ${f.from}`); process.exit(2); }
-    writeFileSync(join(KIT_DIR, f.to), readFileSync(f.from));   // refresh tool files; never touches profile.json/cases.json
+    writeFileSync(join(KIT_DIR, f.to), readFileSync(f.from));   // refresh tool files; never touches blueprint.json/cases.json
   }
 }
-function ensureScaffold() { if (!existsSync(join(KIT_DIR, 'smartmonkey-profile.md'))) scaffold(); }
+function ensureScaffold() { if (!existsSync(join(KIT_DIR, 'smartmonkey-blueprint.md'))) scaffold(); }
 
 // ── serve the viewer/editor ──────────────────────────────────────────────────
 const MIME = { '.html': 'text/html; charset=utf-8', '.json': 'application/json', '.mjs': 'text/javascript', '.js': 'text/javascript', '.css': 'text/css', '.md': 'text/markdown; charset=utf-8' };
@@ -100,14 +100,14 @@ function openBrowser(url) {
 // ── commands ─────────────────────────────────────────────────────────────────
 function cmdDrivers() {
   const found = detectDrivers();
-  console.log('AI drivers on this machine (the profiling runs on YOUR side):');
+  console.log('AI drivers on this machine (the blueprinting runs on YOUR side):');
   for (const d of DRIVERS) console.log(`  ${found.includes(d) ? '✓' : '·'} ${d.label} (${d.bin})`);
   if (!found.length) console.log('\n  None found. Install/sign in to one (Claude Code, Codex, Cursor, Gemini),\n  or run embedded with your own key: --key <API key> (Anthropic, OpenAI, or Gemini).');
 }
 
 async function cmdRun() {
   ensureScaffold();
-  const prompt = readFileSync(join(KIT_DIR, 'smartmonkey-profile.md'), 'utf8');
+  const prompt = readFileSync(join(KIT_DIR, 'smartmonkey-blueprint.md'), 'utf8');
   const { resolveProvider } = await import('./embed.mjs');
 
   // Pick the driver. Explicit --key/--provider ⇒ embedded (their API key). Else a
@@ -129,16 +129,16 @@ function runViaCli(prompt, forced, found) {
   const driver = forced ? DRIVERS.find(d => d.id === forced || d.bin === forced) : found[0];
   if (!driver) { console.error(`driver "${forced}" not found on PATH.`); process.exit(2); }
   if (flag('dry-run')) {
-    console.log(`would run (CLI): ${driver.bin} <the ${prompt.length}-char profiling prompt>  (cwd: ${process.cwd()})`);
+    console.log(`would run (CLI): ${driver.bin} <the ${prompt.length}-char blueprint prompt>  (cwd: ${process.cwd()})`);
     console.log(`then serve ${join(KIT_DIR, 'view.html')}`);
     return;
   }
-  console.log(`Running the profiling with ${driver.label} in ${process.cwd()} …`);
-  console.log('It interviews you, reads the repo, and writes smartmonkey/profile.json (+ cases.json if you asked).\n');
+  console.log(`Building the blueprint with ${driver.label} in ${process.cwd()} …`);
+  console.log('It interviews you, reads the repo, and writes smartmonkey/blueprint.json (+ cases.json if you asked).\n');
   const child = spawn(driver.bin, [prompt], { stdio: 'inherit', cwd: process.cwd() });
-  child.on('exit', () => existsSync(join(KIT_DIR, 'profile.json'))
+  child.on('exit', () => existsSync(join(KIT_DIR, 'blueprint.json'))
     ? (console.log('\nProfiling done. Opening the editor to review + edit before you upload…'), serve(Number(opt('port')) || 8899))
-    : console.log('\nNo profile.json was written. Re-run, or open smartmonkey/smartmonkey-profile.md yourself.'));
+    : console.log('\nNo blueprint.json was written. Re-run, or open smartmonkey/smartmonkey-blueprint.md yourself.'));
   child.on('error', e => { console.error(`could not launch ${driver.bin}: ${e.message}`); process.exit(2); });
 }
 
@@ -149,38 +149,38 @@ async function runEmbedded(prompt, res) {
   if (flag('dry-run')) { console.log(`would run (embedded/${res.provider}, model ${model}) the ${prompt.length}-char prompt in ${process.cwd()}, then serve.`); return; }
   const runTool = embed.makeToolRunner(process.cwd(), embed.makeAsk());
   const callModel = P.make(res.key, model);
-  console.log(`Profiling with your API key (embedded, ${P.label} · ${model}). It will interview you, read the repo,\nand write smartmonkey/profile.json (+ cases.json). Nothing else on disk is touched.\n`);
+  console.log(`Profiling with your API key (embedded, ${P.label} · ${model}). It will interview you, read the repo,\nand write smartmonkey/blueprint.json (+ cases.json). Nothing else on disk is touched.\n`);
   let r;
   try { r = await embed.runAgent({ prompt, callModel, runTool, onText: t => process.stdout.write(t.trim() ? t + '\n' : '') }); }
   catch (e) { console.error('\nrun failed: ' + e.message); process.exit(2); }
-  if (embed.producedProfile(process.cwd())) { console.log('\nDone. Opening the editor to review + edit before you upload…'); serve(Number(opt('port')) || 8899); }
-  else console.log(`\nNo profile.json was written (${r?.reason || 'the model stopped'}). Try again, or use --driver <cli>.`);
+  if (embed.producedBlueprint(process.cwd())) { console.log('\nDone. Opening the editor to review + edit before you upload…'); serve(Number(opt('port')) || 8899); }
+  else console.log(`\nNo blueprint.json was written (${r?.reason || 'the model stopped'}). Try again, or use --driver <cli>.`);
 }
 
 function cmdCheck() {
-  const profile = join(KIT_DIR, 'profile.json');
-  if (!existsSync(profile)) { console.error('no smartmonkey/profile.json yet — run `smartmonkey run` first.'); process.exit(2); }
+  const blueprint = join(KIT_DIR, 'blueprint.json');
+  if (!existsSync(blueprint)) { console.error('no smartmonkey/blueprint.json yet — run `smartmonkey run` first.'); process.exit(2); }
   const pass = args.filter(a => a.startsWith('-'));
-  const r = spawnSync(process.execPath, [join(ASSETS, 'smartmonkey-check.mjs'), profile, '--repo', process.cwd(), ...pass], { stdio: 'inherit' });
+  const r = spawnSync(process.execPath, [join(ASSETS, 'smartmonkey-check.mjs'), blueprint, '--repo', process.cwd(), ...pass], { stdio: 'inherit' });
   process.exit(r.status ?? 0);
 }
 
 function help() {
-  console.log(`smartmonkey — local client for SmartMonkey QA profiling (your source never leaves your machine)
+  console.log(`smartmonkey — local client for SmartMonkey QA blueprinting (your source never leaves your machine)
 
   smartmonkey init             scaffold ./smartmonkey/ into this repo
-  smartmonkey run              run the profiling; opens the editor when done
+  smartmonkey run              build the blueprint; opens the editor when done
                    [--driver X]  force a CLI (claude|codex|cursor|gemini)
                    [--key K]     run embedded with your API key (no CLI needed)
                    [--provider P] anthropic|openai|gemini (else inferred from the key/env)
                    [--model M] [--dry-run] [--port N]
   smartmonkey view [--port N]  open the local viewer + case editor
-  smartmonkey check [--watch]  freshness — has the code moved since the profile?
+  smartmonkey check [--watch]  freshness — has the code moved since the blueprint?
                    [--strict] [--list]
   smartmonkey drivers          which AI CLIs are available here
 
-The profiling runs on YOUR machine via your own logged-in CLI; only the
-profile.json / cases.json you approve is ever shared.`);
+The blueprinting runs on YOUR machine via your own logged-in CLI; only the
+blueprint.json / cases.json you approve is ever shared.`);
 }
 
 switch (cmd) {
