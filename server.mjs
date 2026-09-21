@@ -12,6 +12,7 @@ import { makeWebAsk, answerAsk } from './webask.mjs';
 import { makeSecrets } from './secrets.mjs';
 import * as embed from './embed.mjs';
 import { DRIVERS, detectDrivers as defaultDetectDrivers } from './drivers.mjs';
+import { APP_ID } from './lock.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ASSETS = existsSync(join(__dirname, 'assets')) ? join(__dirname, 'assets') : resolve(__dirname, '../src/assets/blueprint-kit');
@@ -52,6 +53,7 @@ export function createApp({ cwd = process.cwd(), secrets = makeSecrets(), modelF
 
     if (path === '/api/status' && method === 'GET') {
       return sendJson(res, {
+        app: APP_ID,   // lets a second `smartmonkey app` confirm this is us before replacing it
         mode: session.mode,
         driver: session.driver,
         ai: { provider: session.ai.provider, model: session.ai.model, ready: ready() },
@@ -147,5 +149,15 @@ export function createApp({ cwd = process.cwd(), secrets = makeSecrets(), modelF
   }
 
   const server = createServer((req, res) => { handle(req, res).catch(e => { try { sendJson(res, { error: e.message }, 500); } catch {} }); });
-  return { server, session, listen(port) { return new Promise(r => server.listen(port, '127.0.0.1', () => r(server.address().port))); } };
+  return {
+    server, session,
+    listen(port) {
+      return new Promise((resolve, reject) => {
+        const onError = e => { server.removeListener('listening', onListening); reject(e); };
+        const onListening = () => { server.removeListener('error', onError); resolve(server.address().port); };
+        server.once('error', onError);
+        server.listen(port, '127.0.0.1', onListening);
+      });
+    },
+  };
 }

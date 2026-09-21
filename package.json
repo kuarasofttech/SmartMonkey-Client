@@ -14,10 +14,11 @@
     "webask.mjs",
     "secrets.mjs",
     "drivers.mjs",
+    "lock.mjs",
     "assets"
   ],
   "scripts": {
-    "test": "node test/embed.mjs && node test/secrets.mjs && node test/webask.mjs && node test/server.mjs"
+    "test": "node test/embed.mjs && node test/secrets.mjs && node test/webask.mjs && node test/server.mjs && node test/lock.mjs && node test/app-singleton.mjs"
   },
   "engines": {
     "node": ">=18"

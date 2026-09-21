@@ -77,6 +77,7 @@ function serve(port = 8899) {
   return server;
 }
 function openBrowser(url) {
+  if (process.env.SMARTMONKEY_NO_OPEN) return;   // tests / headless launches don't pop a browser
   const bin = process.platform === 'darwin' ? 'open' : process.platform === 'win32' ? 'start' : 'xdg-open';
   try { spawn(bin, [url], { stdio: 'ignore', detached: true, shell: process.platform === 'win32' }).unref(); } catch {}
 }
@@ -152,8 +153,29 @@ function cmdCheck() {
 async function cmdApp() {
   ensureScaffold();                       // so view.html/blueprint.json render for review
   const { createApp } = await import('./server.mjs');
+  const { ensureSingleInstance, writeLock, removeLock } = await import('./lock.mjs');
+  const wantPort = Number(opt('port')) || 8899;
+
+  // Exactly one app per user: replace any instance already running (see lock.mjs).
+  await ensureSingleInstance({ log: msg => console.log(msg) });
+
   const app = createApp({ cwd: process.cwd() });
-  const port = await app.listen(Number(opt('port')) || 8899);
+  let port;
+  for (let i = 0; ; i++) {
+    try { port = await app.listen(wantPort); break; }
+    catch (e) {
+      // The port we just freed may still be in TIME_WAIT for a moment after a replace.
+      if (e.code === 'EADDRINUSE' && i < 4) { await new Promise(r => setTimeout(r, 200)); continue; }
+      if (e.code === 'EADDRINUSE') { console.error(`Port ${wantPort} is in use by another program — pick another with --port N.`); process.exit(2); }
+      throw e;
+    }
+  }
+
+  writeLock({ pid: process.pid, port, cwd: process.cwd(), startedAt: new Date().toISOString() });
+  const cleanup = () => removeLock();
+  process.on('exit', cleanup);
+  for (const sig of ['SIGINT', 'SIGTERM']) process.on(sig, () => { cleanup(); process.exit(0); });
+
   const url = `http://127.0.0.1:${port}/`;
   console.log(`SmartMonkey app: ${url}  (Ctrl-C to stop)`);
   openBrowser(url);
