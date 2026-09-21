@@ -2,6 +2,7 @@
   "name": "smartmonkey-client",
   "version": "0.1.0",
   "description": "SmartMonkey local client — blueprint your app for AI QA testing. Runs on your machine with your own AI (a logged-in CLI or your own API key); your source never leaves it, only the blueprint/cases you approve.",
+  "author": "Kuarasoft",
   "type": "module",
   "bin": {
     "smartmonkey": "cli.mjs"
