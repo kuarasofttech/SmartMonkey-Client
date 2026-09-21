@@ -148,6 +148,21 @@ await check('CLI mode generate with an unavailable driver is refused', async () 
   const r = await req(port, 'POST', '/api/generate');
   assert.equal(r.status, 400);
   assert.ok(r.json && r.json.error, 'a 400 error body is returned');
+  assert.ok(/not available/.test(r.json.error), `error message names the CLI as unavailable, got: ${r.json && r.json.error}`);
+
+  app.server.close();
+});
+
+await check('CLI mode generate with no AI configured at all (no provider, no driver) still gives the CLI-specific 400, not the generic "AI not ready" one', async () => {
+  const cwd = mkdtempSync(join(tmpdir(), 'sm-app-'));
+  const app = createApp({ cwd, secrets: makeSecrets({ platform: 'win32' }), detectDrivers: () => [] });
+  const port = await app.listen(0);
+
+  assert.equal((await req(port, 'POST', '/api/ai', { mode: 'cli', driver: 'codex' })).status, 200);
+  const r = await req(port, 'POST', '/api/generate');
+  assert.equal(r.status, 400);
+  assert.ok(/not available/.test(r.json.error), `expected the CLI-not-available message, got: ${r.json && r.json.error}`);
+  assert.ok(!/AI not ready/.test(r.json.error), 'the generic embedded-only message must not fire for the cli branch');
 
   app.server.close();
 });

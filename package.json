@@ -10,6 +10,10 @@
   "files": [
     "cli.mjs",
     "embed.mjs",
+    "server.mjs",
+    "webask.mjs",
+    "secrets.mjs",
+    "drivers.mjs",
     "assets"
   ],
   "scripts": {

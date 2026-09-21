@@ -85,12 +85,11 @@ export function createApp({ cwd = process.cwd(), secrets = makeSecrets(), modelF
 
     if (path === '/api/generate' && method === 'POST') {
       if (session.running) return sendJson(res, { error: 'a run is already active' }, 409);
-      if (!ready()) return sendJson(res, { error: 'AI not ready — set a provider + key first' }, 400);
 
       if (session.mode === 'cli') {
         const d = DRIVERS.find(x => x.id === session.driver);
-        if (!d || !detectDrivers().some(x => x.id === d.id)) return sendJson(res, { error: 'selected CLI not available' }, 400);
-        session.running = true; session.status = 'running'; session.events = []; session.pendingAsk = null;
+        if (!d || !detectDrivers().some(x => x.id === d.id)) return sendJson(res, { error: 'selected CLI not available — choose a logged-in CLI' }, 400);
+        session.running = true; session.status = 'running'; session.error = null; session.events = []; session.pendingAsk = null;
         emit('text', `Running ${d.label} in the terminal where you started \`smartmonkey app\` — answer its questions there.`);
         runCli({
           driver: d, prompt: PROMPT(), cwd,
@@ -99,6 +98,8 @@ export function createApp({ cwd = process.cwd(), secrets = makeSecrets(), modelF
         });
         return sendJson(res, { ok: true }, 202);
       }
+
+      if (!ready()) return sendJson(res, { error: 'AI not ready — set a provider + key first' }, 400);
 
       session.status = 'running'; session.running = true; session.error = null; session.events = []; session.pendingAsk = null;
       const webask = makeWebAsk(session, emit);
