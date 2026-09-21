@@ -69,10 +69,10 @@ a **foreground** server (no daemon).
 
 ### 1. Lifecycle & command surface
 
-- Bare `smartmonkey` (and `smartmonkey app`) → start the persistent server on
-  `127.0.0.1:<port>` (`--port`, default 8899), open the browser, run until Ctrl-C.
-- `smartmonkey --help` / `-h` → the help text (which bare `smartmonkey` prints
-  today; that moves behind the flag).
+- `smartmonkey app` → start the persistent server on `127.0.0.1:<port>`
+  (`--port`, default 8899), open the browser, run until Ctrl-C.
+- Bare `smartmonkey` keeps printing help (unchanged from today); `app` is added
+  to the help listing.
 - `run` / `cases` / `check` / `view` / `drivers` unchanged.
 
 ### 2. Server + API — `server.mjs` (zero-dep `http`)
@@ -200,7 +200,7 @@ server.mjs      (new) http server, routes, SSE, single-run session; wires embed 
 webask.mjs      (new) makeWebAsk / answerAsk (pure bridge)
 secrets.mjs     (new) makeSecrets: keychain get/set/delete + in-memory fallback
 assets/app.html (new) the persistent app UI
-cli.mjs         (mod) bare `smartmonkey` / `app` → start server; help behind --help
+cli.mjs         (mod) add the `app` command → start server (bare `smartmonkey` = help, unchanged)
 test/secrets.mjs (new)
 test/webask.mjs  (new)
 test/server.mjs  (new) generate → ask → answer → done over 127.0.0.1 with a mock model
