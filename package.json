@@ -21,7 +21,8 @@
     "assets"
   ],
   "scripts": {
-    "test": "node test/embed.mjs && node test/secrets.mjs && node test/webask.mjs && node test/server.mjs && node test/lock.mjs && node test/app-singleton.mjs"
+    "test": "node test/embed.mjs && node test/secrets.mjs && node test/webask.mjs && node test/server.mjs && node test/lock.mjs && node test/app-singleton.mjs",
+    "prepublishOnly": "npm test"
   },
   "engines": {
     "node": ">=18"
