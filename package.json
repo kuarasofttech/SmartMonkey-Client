@@ -13,7 +13,7 @@
     "assets"
   ],
   "scripts": {
-    "test": "node test/embed.mjs"
+    "test": "node test/embed.mjs && node test/secrets.mjs"
   },
   "engines": {
     "node": ">=18"
