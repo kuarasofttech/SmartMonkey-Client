@@ -6,20 +6,30 @@ the OS keychain), on top of the CLI + embedded API-key mode across
 Anthropic / OpenAI / Gemini. Dev builds read the kit assets from the organiclaw
 repo; a published package bundles its own `assets/`.
 
-```
-npx smartmonkey-client app          # run the local app: set your AI, build the blueprint in your browser
-npx smartmonkey-client run          # blueprint (auto-picks your logged-in AI CLI), then opens the editor
-npx smartmonkey-client view         # open the local viewer + case editor
-npx smartmonkey-client check --watch # has the code moved since the blueprint was built?
-npx smartmonkey-client drivers      # which AI CLIs are available here
-npx smartmonkey-client init         # just scaffold ./smartmonkey/
-```
+## Install
 
-Installed globally (`npm i -g smartmonkey-client`), the command is just
-`smartmonkey`:
+Not on the npm registry yet — install straight from GitHub (zero runtime deps,
+Node ≥ 18):
 
 ```
-smartmonkey run
+npm i -g github:kuarasofttech/SmartMonkey-Client
+```
+
+That gives you the `smartmonkey` command:
+
+```
+smartmonkey app          # run the local app: set your AI, build the blueprint in your browser
+smartmonkey run          # blueprint (auto-picks your logged-in AI CLI), then opens the editor
+smartmonkey view         # open the local viewer + case editor
+smartmonkey check --watch # has the code moved since the blueprint was built?
+smartmonkey drivers      # which AI CLIs are available here
+smartmonkey init         # just scaffold ./smartmonkey/
+```
+
+Prefer not to install globally? Run a one-off from the repo:
+
+```
+npx github:kuarasofttech/SmartMonkey-Client app
 ```
 
 ## The AI runs on your side

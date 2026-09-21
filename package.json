@@ -4,6 +4,9 @@
   "description": "SmartMonkey local client — blueprint your app for AI QA testing. Runs on your machine with your own AI (a logged-in CLI or your own API key); your source never leaves it, only the blueprint/cases you approve.",
   "author": "Kuarasoft",
   "type": "module",
+  "repository": { "type": "git", "url": "git+https://github.com/kuarasofttech/SmartMonkey-Client.git" },
+  "homepage": "https://github.com/kuarasofttech/SmartMonkey-Client#readme",
+  "bugs": { "url": "https://github.com/kuarasofttech/SmartMonkey-Client/issues" },
   "bin": {
     "smartmonkey": "cli.mjs"
   },
