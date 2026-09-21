@@ -5,7 +5,7 @@
  */
 import { createServer } from 'node:http';
 import { createReadStream, existsSync, statSync, readFileSync } from 'node:fs';
-import { join, resolve, extname, dirname } from 'node:path';
+import { join, resolve, extname, dirname, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { makeWebAsk, answerAsk } from './webask.mjs';
 import { makeSecrets } from './secrets.mjs';
@@ -16,14 +16,14 @@ const ASSETS = existsSync(join(__dirname, 'assets')) ? join(__dirname, 'assets')
 const PROMPT = () => readFileSync(join(ASSETS, 'smartmonkey-blueprint.md'), 'utf8');
 const MIME = { '.html': 'text/html; charset=utf-8', '.json': 'application/json', '.mjs': 'text/javascript', '.js': 'text/javascript', '.css': 'text/css', '.md': 'text/markdown; charset=utf-8' };
 
-const readBody = req => new Promise((res) => { let b = ''; req.on('data', c => b += c); req.on('end', () => { try { res(b ? JSON.parse(b) : {}); } catch { res({}); } }); });
+const readBody = req => new Promise((res) => { let b = ''; req.on('data', c => { if (b.length <= 1_000_000) b += c; }); req.on('end', () => { try { res(b ? JSON.parse(b) : {}); } catch { res({}); } }); });
 const sendJson = (res, obj, code = 200) => { res.writeHead(code, { 'content-type': 'application/json' }); res.end(JSON.stringify(obj)); };
 const writeSse = (res, ev) => res.write(`event: ${ev.type}\ndata: ${JSON.stringify(ev.data)}\n\n`);
 
 export function createApp({ cwd = process.cwd(), secrets = makeSecrets(), modelFactory } = {}) {
   const KIT = join(resolve(cwd), 'smartmonkey');
   const make = modelFactory || ((provider, model, key) => embed.PROVIDERS[provider].make(key, model));
-  const session = { status: 'idle', error: null, events: [], clients: new Set(), pendingAsk: null, ai: { provider: null, model: null }, key: null };
+  const session = { status: 'idle', running: false, error: null, events: [], clients: new Set(), pendingAsk: null, ai: { provider: null, model: null }, key: null };
 
   const emit = (type, data) => { const ev = { type, data }; session.events.push(ev); for (const r of session.clients) writeSse(r, ev); };
   const ready = () => !!(session.ai.provider && session.key);
@@ -61,16 +61,16 @@ export function createApp({ cwd = process.cwd(), secrets = makeSecrets(), modelF
     }
 
     if (path === '/api/generate' && method === 'POST') {
-      if (session.status === 'running') return sendJson(res, { error: 'a run is already active' }, 409);
+      if (session.running) return sendJson(res, { error: 'a run is already active' }, 409);
       if (!ready()) return sendJson(res, { error: 'AI not ready — set a provider + key first' }, 400);
-      session.status = 'running'; session.error = null; session.events = []; session.pendingAsk = null;
+      session.status = 'running'; session.running = true; session.error = null; session.events = []; session.pendingAsk = null;
       const webask = makeWebAsk(session, emit);
       const base = embed.makeToolRunner(cwd, webask);
       const runTool = async (name, input) => { emit('tool', { name, summary: input?.path || input?.query || input?.args?.join(' ') || '' }); return base(name, input); };
       const callModel = make(session.ai.provider, session.ai.model, session.key);
       embed.runAgent({ prompt: PROMPT(), callModel, runTool, onText: t => { if (t && t.trim()) emit('text', t); } })
-        .then(() => { session.status = 'done'; emit('done', { blueprint: existsSync(join(KIT, 'blueprint.json')) }); })
-        .catch(e => { session.status = 'error'; session.error = e.message; emit('error', { message: e.message }); });
+        .then(() => { session.status = 'done'; session.running = false; emit('done', { blueprint: existsSync(join(KIT, 'blueprint.json')) }); })
+        .catch(e => { session.status = 'error'; session.running = false; session.error = e.message; emit('error', { message: e.message }); });
       return sendJson(res, { ok: true }, 202);
     }
 
@@ -90,6 +90,7 @@ export function createApp({ cwd = process.cwd(), secrets = makeSecrets(), modelF
     if (path === '/api/stop' && method === 'POST') {
       if (session.pendingAsk) answerAsk(session, session.pendingAsk.id, '');   // unblock a waiting ask
       session.status = 'idle';
+      // best-effort: no mid-turn abort; `running` stays set until the live loop settles, so a new generate is refused until then
       return sendJson(res, { ok: true });
     }
 
@@ -98,9 +99,9 @@ export function createApp({ cwd = process.cwd(), secrets = makeSecrets(), modelF
       if (path === '/' || path === '') return serveFile(res, join(ASSETS, 'app.html'));
       const rel = decodeURIComponent(path).replace(/^\/+/, '');
       const kitFile = join(KIT, rel);
-      if (kitFile.startsWith(KIT) && existsSync(kitFile) && !statSync(kitFile).isDirectory()) return serveFile(res, kitFile);
+      if ((kitFile === KIT || kitFile.startsWith(KIT + sep)) && existsSync(kitFile) && !statSync(kitFile).isDirectory()) return serveFile(res, kitFile);
       const assetFile = join(ASSETS, rel);
-      if (assetFile.startsWith(ASSETS) && existsSync(assetFile) && !statSync(assetFile).isDirectory()) return serveFile(res, assetFile);
+      if ((assetFile === ASSETS || assetFile.startsWith(ASSETS + sep)) && existsSync(assetFile) && !statSync(assetFile).isDirectory()) return serveFile(res, assetFile);
       res.writeHead(404); res.end('not found'); return;
     }
 
