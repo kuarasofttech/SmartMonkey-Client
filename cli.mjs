@@ -20,7 +20,8 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync, createReadStream, s
 import { spawn, spawnSync } from 'node:child_process';
 import { createServer } from 'node:http';
 import { fileURLToPath } from 'node:url';
-import { dirname, join, resolve, delimiter, extname } from 'node:path';
+import { dirname, join, resolve, extname } from 'node:path';
+import { DRIVERS, detectDrivers } from './drivers.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 // Kit assets: a bundled copy next to the CLI when packaged/standalone, else the
@@ -38,23 +39,6 @@ const args = process.argv.slice(2);
 const cmd = args.find(a => !a.startsWith('-')) || 'help';
 const flag = name => args.includes('--' + name);
 const opt = name => { const i = args.indexOf('--' + name); return i >= 0 ? args[i + 1] : undefined; };
-
-// ── AI drivers (orchestrate the customer's own logged-in CLI) ────────────────
-const DRIVERS = [
-  { id: 'claude', bin: 'claude', label: 'Claude Code' },
-  { id: 'codex', bin: 'codex', label: 'OpenAI Codex CLI' },
-  { id: 'cursor', bin: 'cursor-agent', label: 'Cursor Agent' },
-  { id: 'gemini', bin: 'gemini', label: 'Gemini CLI' },
-];
-function onPath(bin) {
-  const exts = process.platform === 'win32' ? ['.cmd', '.exe', '.bat', ''] : [''];
-  for (const dir of (process.env.PATH || '').split(delimiter)) {
-    if (!dir) continue;
-    for (const ext of exts) { try { if (existsSync(join(dir, bin + ext))) return true; } catch {} }
-  }
-  return false;
-}
-const detectDrivers = () => DRIVERS.filter(d => onPath(d.bin));
 
 // ── scaffold ─────────────────────────────────────────────────────────────────
 const KIT_FILES = [

@@ -4,7 +4,7 @@
  *   node test/server.mjs
  */
 import { strict as assert } from 'node:assert';
-import { mkdtempSync, existsSync } from 'node:fs';
+import { mkdtempSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import http from 'node:http';
@@ -67,6 +67,89 @@ await check('generate → ask (SSE) → answer → done writes blueprint.json; c
   assert.ok(existsSync(join(cwd, 'smartmonkey', 'blueprint.json')), 'blueprint.json was written');
 
   es.destroy(); app.server.close();
+});
+
+await check('GET /api/drivers reflects the injected detectDrivers', async () => {
+  const cwd = mkdtempSync(join(tmpdir(), 'sm-app-'));
+  const app = createApp({ cwd, secrets: makeSecrets({ platform: 'win32' }), detectDrivers: () => [{ id: 'claude', bin: 'claude', label: 'Claude Code' }] });
+  const port = await app.listen(0);
+
+  const r = await req(port, 'GET', '/api/drivers');
+  assert.equal(r.status, 200);
+  const byId = Object.fromEntries(r.json.drivers.map(d => [d.id, d]));
+  assert.equal(byId.claude.available, true);
+  assert.equal(byId.codex.available, false);
+  assert.equal(byId.cursor.available, false);
+  assert.equal(byId.gemini.available, false);
+
+  app.server.close();
+});
+
+await check('CLI mode readiness: selecting an available driver is ready, an unavailable one is not', async () => {
+  const cwd = mkdtempSync(join(tmpdir(), 'sm-app-'));
+  const app = createApp({ cwd, secrets: makeSecrets({ platform: 'win32' }), detectDrivers: () => [{ id: 'claude', bin: 'claude', label: 'Claude Code' }] });
+  const port = await app.listen(0);
+
+  assert.equal((await req(port, 'POST', '/api/ai', { mode: 'cli', driver: 'claude' })).status, 200);
+  const ready = await req(port, 'GET', '/api/status');
+  assert.equal(ready.json.mode, 'cli');
+  assert.equal(ready.json.driver, 'claude');
+  assert.equal(ready.json.ai.ready, true);
+
+  assert.equal((await req(port, 'POST', '/api/ai', { mode: 'cli', driver: 'codex' })).status, 200);
+  const notReady = await req(port, 'GET', '/api/status');
+  assert.equal(notReady.json.mode, 'cli');
+  assert.equal(notReady.json.driver, 'codex');
+  assert.equal(notReady.json.ai.ready, false, 'codex is not in the injected detectDrivers set');
+
+  app.server.close();
+});
+
+await check('CLI mode generate: injected runCli writes the blueprint and streams done', async () => {
+  const cwd = mkdtempSync(join(tmpdir(), 'sm-app-'));
+  mkdirSync(join(cwd, 'smartmonkey'), { recursive: true });
+  const runCli = ({ onDone }) => { writeFileSync(join(cwd, 'smartmonkey', 'blueprint.json'), JSON.stringify({ smartmonkeyBlueprint: 1 })); onDone(); };
+  const app = createApp({ cwd, secrets: makeSecrets({ platform: 'win32' }), detectDrivers: () => [{ id: 'claude', bin: 'claude', label: 'Claude Code' }], runCli });
+  const port = await app.listen(0);
+
+  let sawDone = false, doneData = null;
+  const es = http.request({ host: '127.0.0.1', port, path: '/api/events', method: 'GET' }, res => {
+    let buf = '';
+    res.on('data', chunk => {
+      buf += chunk;
+      let i;
+      while ((i = buf.indexOf('\n\n')) >= 0) {
+        const raw = buf.slice(0, i); buf = buf.slice(i + 2);
+        const type = (raw.match(/event: (.*)/) || [])[1];
+        const data = JSON.parse((raw.match(/data: (.*)/) || [])[1] || 'null');
+        if (type === 'done') { sawDone = true; doneData = data; }
+      }
+    });
+  });
+  es.end();
+
+  assert.equal((await req(port, 'POST', '/api/ai', { mode: 'cli', driver: 'claude' })).status, 200);
+  assert.equal((await req(port, 'POST', '/api/generate')).status, 202);
+
+  for (let i = 0; i < 100 && !sawDone; i++) await new Promise(r => setTimeout(r, 20));
+  assert.ok(sawDone, 'a done event arrived');
+  assert.equal(doneData.blueprint, true);
+  assert.ok(existsSync(join(cwd, 'smartmonkey', 'blueprint.json')), 'blueprint.json was written');
+
+  es.destroy(); app.server.close();
+});
+
+await check('CLI mode generate with an unavailable driver is refused', async () => {
+  const cwd = mkdtempSync(join(tmpdir(), 'sm-app-'));
+  const app = createApp({ cwd, secrets: makeSecrets({ platform: 'win32' }), detectDrivers: () => [] });
+  const port = await app.listen(0);
+
+  assert.equal((await req(port, 'POST', '/api/ai', { mode: 'cli', driver: 'claude' })).status, 200);
+  const r = await req(port, 'POST', '/api/generate');
+  assert.equal(r.status, 400);
+  assert.ok(r.json && r.json.error, 'a 400 error body is returned');
+
+  app.server.close();
 });
 
 if (failures) { console.error(`\n${failures} failure(s)`); process.exit(1); }

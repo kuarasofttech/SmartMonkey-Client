@@ -25,6 +25,9 @@
   .ask .opts input { width:auto; }
   a { color: var(--primary); }
   .hide { display:none; }
+  .modeToggle { display:flex; gap:16px; margin:10px 0 4px; font-size:13px; color:var(--text); }
+  .modeToggle label { display:flex; align-items:center; gap:6px; cursor:pointer; }
+  .modeToggle input { width:auto; }
 </style>
 </head>
 <body>
@@ -34,25 +37,40 @@
 
   <div class="card">
     <b>1 · Your AI</b>
-    <div class="row">
-      <div>
-        <label>Provider</label>
-        <select id="provider">
-          <option value="anthropic">Anthropic</option>
-          <option value="openai">OpenAI</option>
-          <option value="gemini">Gemini</option>
-        </select>
+    <div class="modeToggle">
+      <label><input type="radio" name="aiMode" id="modePlatform" value="embedded" checked /> Platform (API key)</label>
+      <label><input type="radio" name="aiMode" id="modeCli" value="cli" /> Logged-in CLI</label>
+    </div>
+
+    <div id="platformMode">
+      <div class="row">
+        <div>
+          <label>Provider</label>
+          <select id="provider">
+            <option value="anthropic">Anthropic</option>
+            <option value="openai">OpenAI</option>
+            <option value="gemini">Gemini</option>
+          </select>
+        </div>
+        <div>
+          <label>Model</label>
+          <input id="model" placeholder="(default)" />
+        </div>
       </div>
-      <div>
-        <label>Model</label>
-        <input id="model" placeholder="(default)" />
+      <label>API key <span id="kc" class="status"></span></label>
+      <div class="row">
+        <div><input id="key" type="password" placeholder="sk-… (stored in your OS keychain)" /></div>
+        <button id="saveKey">Save</button>
       </div>
     </div>
-    <label>API key <span id="kc" class="status"></span></label>
-    <div class="row">
-      <div><input id="key" type="password" placeholder="sk-… (stored in your OS keychain)" /></div>
-      <button id="saveKey">Save</button>
+
+    <div id="cliMode" class="hide">
+      <label>Logged-in CLI</label>
+      <select id="driver"></select>
+      <p class="status" id="driverNote"></p>
+      <p class="status">The interview will appear in the terminal where you started <code>smartmonkey app</code> — answer it there. The app opens the editor when it's done.</p>
     </div>
+
     <div class="status" id="aiStatus"></div>
   </div>
 
@@ -72,21 +90,62 @@ const $ = id => document.getElementById(id);
 const api = (method, path, body) => fetch(path, { method, headers: body ? { 'content-type': 'application/json' } : {}, body: body ? JSON.stringify(body) : undefined }).then(r => r.json().catch(() => ({})));
 function logLine(t) { const el = $('log'); el.textContent += t.endsWith('\n') ? t : t + '\n'; el.scrollTop = el.scrollHeight; }
 
+// Populate the driver <select> from /api/drivers, without changing the server's
+// selection. Returns the list of AVAILABLE drivers.
+async function populateDrivers(selectId) {
+  const { drivers } = await api('GET', '/api/drivers');
+  const sel = $('driver');
+  const available = drivers.filter(d => d.available);
+  sel.innerHTML = '';
+  if (!available.length) {
+    $('driverNote').textContent = 'No logged-in CLI found — sign in to Claude Code / Codex / Cursor / Gemini, or use Platform mode.';
+    sel.disabled = true;
+    return available;
+  }
+  $('driverNote').textContent = '';
+  sel.disabled = false;
+  for (const d of available) { const o = document.createElement('option'); o.value = d.id; o.textContent = d.label; sel.appendChild(o); }
+  if (selectId && available.some(d => d.id === selectId)) sel.value = selectId;
+  return available;
+}
+
+let driversLoaded = false;
 async function refresh() {
   const s = await api('GET', '/api/status');
   $('kc').textContent = s.keychain.available ? '· saved in OS keychain' : '· keychain unavailable, kept for this session only';
-  $('aiStatus').textContent = s.ai.ready ? `Ready: ${s.ai.provider} · ${s.ai.model}` : 'Set a provider + key to enable Build.';
+  const isCli = s.mode === 'cli';
+  $('modePlatform').checked = !isCli;
+  $('modeCli').checked = isCli;
+  $('platformMode').classList.toggle('hide', isCli);
+  $('cliMode').classList.toggle('hide', !isCli);
+  if (isCli && !driversLoaded) { driversLoaded = true; await populateDrivers(s.driver); }
+  if (isCli) {
+    $('aiStatus').textContent = s.ai.ready ? `Ready: ${s.driver}` : 'Pick a logged-in CLI to enable Build.';
+  } else {
+    $('aiStatus').textContent = s.ai.ready ? `Ready: ${s.ai.provider} · ${s.ai.model}` : 'Set a provider + key to enable Build.';
+  }
   $('gen').disabled = !s.ai.ready || s.run.status === 'running';
   if (s.blueprint.exists) $('doneMsg').classList.remove('hide');
   if (s.pendingAsk) renderAsk(s.pendingAsk);
 }
 
 $('saveKey').onclick = async () => {
-  await api('POST', '/api/ai', { provider: $('provider').value, model: $('model').value || undefined, key: $('key').value || undefined });
+  await api('POST', '/api/ai', { mode: 'embedded', provider: $('provider').value, model: $('model').value || undefined, key: $('key').value || undefined });
   $('key').value = '';
   refresh();
 };
-$('provider').onchange = () => api('POST', '/api/ai', { provider: $('provider').value, model: $('model').value || undefined }).then(refresh);
+$('provider').onchange = () => api('POST', '/api/ai', { mode: 'embedded', provider: $('provider').value, model: $('model').value || undefined }).then(refresh);
+
+$('driver').onchange = () => api('POST', '/api/ai', { mode: 'cli', driver: $('driver').value }).then(refresh);
+
+$('modePlatform').onchange = () => { if ($('modePlatform').checked) api('POST', '/api/ai', { mode: 'embedded', provider: $('provider').value, model: $('model').value || undefined }).then(refresh); };
+$('modeCli').onchange = async () => {
+  if (!$('modeCli').checked) return;
+  driversLoaded = true;
+  const available = await populateDrivers();
+  await api('POST', '/api/ai', { mode: 'cli', driver: available.length ? available[0].id : undefined });
+  refresh();
+};
 
 $('gen').onclick = async () => {
   $('log').textContent = ''; $('asks').innerHTML = ''; $('doneMsg').classList.add('hide');

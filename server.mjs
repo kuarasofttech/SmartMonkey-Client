@@ -7,9 +7,11 @@ import { createServer } from 'node:http';
 import { createReadStream, existsSync, statSync, readFileSync } from 'node:fs';
 import { join, resolve, extname, dirname, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { spawn } from 'node:child_process';
 import { makeWebAsk, answerAsk } from './webask.mjs';
 import { makeSecrets } from './secrets.mjs';
 import * as embed from './embed.mjs';
+import { DRIVERS, detectDrivers as defaultDetectDrivers } from './drivers.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ASSETS = existsSync(join(__dirname, 'assets')) ? join(__dirname, 'assets') : resolve(__dirname, '../src/assets/blueprint-kit');
@@ -20,13 +22,22 @@ const readBody = req => new Promise((res) => { let b = ''; req.on('data', c => {
 const sendJson = (res, obj, code = 200) => { res.writeHead(code, { 'content-type': 'application/json' }); res.end(JSON.stringify(obj)); };
 const writeSse = (res, ev) => res.write(`event: ${ev.type}\ndata: ${JSON.stringify(ev.data)}\n\n`);
 
-export function createApp({ cwd = process.cwd(), secrets = makeSecrets(), modelFactory } = {}) {
+function defaultRunCli({ driver, prompt, cwd, onDone, onError }) {
+  const child = spawn(driver.bin, [prompt], { stdio: 'inherit', cwd });
+  child.on('exit', () => onDone());
+  child.on('error', e => onError(e));
+}
+
+export function createApp({ cwd = process.cwd(), secrets = makeSecrets(), modelFactory,
+  detectDrivers = defaultDetectDrivers, runCli = defaultRunCli } = {}) {
   const KIT = join(resolve(cwd), 'smartmonkey');
   const make = modelFactory || ((provider, model, key) => embed.PROVIDERS[provider].make(key, model));
-  const session = { status: 'idle', running: false, error: null, events: [], clients: new Set(), pendingAsk: null, ai: { provider: null, model: null }, key: null };
+  const session = { status: 'idle', running: false, error: null, events: [], clients: new Set(), pendingAsk: null, ai: { provider: null, model: null }, key: null, mode: 'embedded', driver: null };
 
   const emit = (type, data) => { const ev = { type, data }; session.events.push(ev); for (const r of session.clients) writeSse(r, ev); };
-  const ready = () => !!(session.ai.provider && session.key);
+  const isDriverReady = () => session.driver && detectDrivers().some(d => d.id === session.driver);
+  const ready = () => session.mode === 'cli' ? !!isDriverReady() : !!(session.ai.provider && session.key);
+  const driversPayload = () => { const detected = detectDrivers(); return DRIVERS.map(d => ({ id: d.id, label: d.label, available: detected.some(x => x.id === d.id) })); };
 
   const serveFile = (res, file) => {
     if (!existsSync(file) || statSync(file).isDirectory()) { res.writeHead(404); res.end('not found'); return; }
@@ -41,6 +52,8 @@ export function createApp({ cwd = process.cwd(), secrets = makeSecrets(), modelF
 
     if (path === '/api/status' && method === 'GET') {
       return sendJson(res, {
+        mode: session.mode,
+        driver: session.driver,
         ai: { provider: session.ai.provider, model: session.ai.model, ready: ready() },
         keychain: { available: secrets.available() },
         blueprint: { exists: existsSync(join(KIT, 'blueprint.json')) },
@@ -49,10 +62,20 @@ export function createApp({ cwd = process.cwd(), secrets = makeSecrets(), modelF
       });
     }
 
+    if (path === '/api/drivers' && method === 'GET') {
+      return sendJson(res, { drivers: driversPayload() });
+    }
+
     if (path === '/api/ai' && method === 'POST') {
       const body = await readBody(req);
+      if (body.mode === 'cli') {
+        session.mode = 'cli';
+        session.driver = body.driver || null;
+        return sendJson(res, { ok: true, mode: 'cli', driver: session.driver, ready: ready(), drivers: driversPayload() });
+      }
       const provider = body.provider;
       if (!provider || !embed.PROVIDERS[provider]) return sendJson(res, { error: 'unknown provider' }, 400);
+      session.mode = 'embedded';
       session.ai.provider = provider;
       session.ai.model = body.model || embed.PROVIDERS[provider].defaultModel;
       if (body.key) { secrets.set(provider, body.key); session.key = body.key; }
@@ -63,6 +86,20 @@ export function createApp({ cwd = process.cwd(), secrets = makeSecrets(), modelF
     if (path === '/api/generate' && method === 'POST') {
       if (session.running) return sendJson(res, { error: 'a run is already active' }, 409);
       if (!ready()) return sendJson(res, { error: 'AI not ready — set a provider + key first' }, 400);
+
+      if (session.mode === 'cli') {
+        const d = DRIVERS.find(x => x.id === session.driver);
+        if (!d || !detectDrivers().some(x => x.id === d.id)) return sendJson(res, { error: 'selected CLI not available' }, 400);
+        session.running = true; session.status = 'running'; session.events = []; session.pendingAsk = null;
+        emit('text', `Running ${d.label} in the terminal where you started \`smartmonkey app\` — answer its questions there.`);
+        runCli({
+          driver: d, prompt: PROMPT(), cwd,
+          onDone: () => { session.running = false; session.status = 'done'; emit('done', { blueprint: existsSync(join(KIT, 'blueprint.json')) }); },
+          onError: e => { session.running = false; session.status = 'error'; session.error = e.message; emit('error', { message: e.message }); },
+        });
+        return sendJson(res, { ok: true }, 202);
+      }
+
       session.status = 'running'; session.running = true; session.error = null; session.events = []; session.pendingAsk = null;
       const webask = makeWebAsk(session, emit);
       const base = embed.makeToolRunner(cwd, webask);
