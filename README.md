@@ -1,12 +1,13 @@
 # smartmonkey-client
 
-The local client for **SmartMonkey** QA. One command instead of loose files: it
-scaffolds the blueprint kit into your repo, builds the blueprint with **your own
-AI**, serves a viewer + case editor, and checks freshness — all on your machine.
-**Your source never leaves your machine**; only the `blueprint.json` / `cases.json`
-you approve is ever shared.
+Stage 3a of the SmartMonkey local client (a persistent local app: set your AI +
+build the blueprint from the browser, with the interview in-page and secrets in
+the OS keychain), on top of the CLI + embedded API-key mode across
+Anthropic / OpenAI / Gemini. Dev builds read the kit assets from the organiclaw
+repo; a published package bundles its own `assets/`.
 
 ```
+npx smartmonkey-client app          # run the local app: set your AI, build the blueprint in your browser
 npx smartmonkey-client run          # blueprint (auto-picks your logged-in AI CLI), then opens the editor
 npx smartmonkey-client view         # open the local viewer + case editor
 npx smartmonkey-client check --watch # has the code moved since the blueprint was built?
@@ -52,6 +53,15 @@ environment), and each has a sensible default model you can override:
 
 Either way: we never see your code. The AI runs on your machine and only the
 `blueprint.json` / `cases.json` you approve is ever shared.
+
+## The app
+
+`smartmonkey app` starts a small local web app (in your browser, on your machine).
+Pick your AI provider and paste your key once — it's stored in your OS keychain —
+then click **Build blueprint**: it reads your repo and interviews you right in the
+page (real dropdowns/checkboxes), and writes `smartmonkey/blueprint.json` for you
+to review. Nothing but the blueprint you approve leaves your machine. The app runs
+in the foreground; Ctrl-C to stop.
 
 ## Privacy
 
