@@ -116,8 +116,7 @@ async function refresh() {
   const isCli = s.mode === 'cli';
   $('modePlatform').checked = !isCli;
   $('modeCli').checked = isCli;
-  $('platformMode').classList.toggle('hide', isCli);
-  $('cliMode').classList.toggle('hide', !isCli);
+  showMode(isCli);
   if (isCli && !driversLoaded) { driversLoaded = true; await populateDrivers(s.driver); }
   if (isCli) {
     $('aiStatus').textContent = s.ai.ready ? `Ready: ${s.driver}` : 'Pick a logged-in CLI to enable Build.';
@@ -138,9 +137,22 @@ $('provider').onchange = () => api('POST', '/api/ai', { mode: 'embedded', provid
 
 $('driver').onchange = () => api('POST', '/api/ai', { mode: 'cli', driver: $('driver').value }).then(refresh);
 
-$('modePlatform').onchange = () => { if ($('modePlatform').checked) api('POST', '/api/ai', { mode: 'embedded', provider: $('provider').value, model: $('model').value || undefined }).then(refresh); };
+// Show/hide the two setup sections. Called synchronously on a mode switch so the
+// API-key field disappears the instant CLI is chosen — before (and independent of)
+// the server round-trip.
+function showMode(isCli) {
+  $('platformMode').classList.toggle('hide', isCli);
+  $('cliMode').classList.toggle('hide', !isCli);
+}
+
+$('modePlatform').onchange = () => {
+  if (!$('modePlatform').checked) return;
+  showMode(false);
+  api('POST', '/api/ai', { mode: 'embedded', provider: $('provider').value, model: $('model').value || undefined }).then(refresh);
+};
 $('modeCli').onchange = async () => {
   if (!$('modeCli').checked) return;
+  showMode(true);
   driversLoaded = true;
   const available = await populateDrivers();
   await api('POST', '/api/ai', { mode: 'cli', driver: available.length ? available[0].id : undefined });
