@@ -1,0 +1,462 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SmartMonkey Profile</title>
+<meta name="description" content="A local, static viewer for a SmartMonkey QA profile — shows exactly what was captured and what leaves your machine.">
+<style>
+  :root {
+    --bg: #f6f7f9; --panel: #ffffff; --ink: #1a1d21; --muted: #5b6570;
+    --line: #e3e7ec; --brand: #1f7a3d; --brand-soft: #e7f4ec;
+    --warn: #b4531a; --warn-soft: #fbeee2; --danger: #b3261e; --danger-soft: #fbe9e7;
+    --ok: #1f7a3d; --ok-soft: #e7f4ec; --chip: #eef1f4; --code: #f1f3f5;
+    --radius: 12px;
+  }
+  :root:not([data-theme="light"]) { }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #0f1216; --panel: #171b20; --ink: #e7ebef; --muted: #97a1ac;
+      --line: #2a313a; --brand: #4cc471; --brand-soft: #16281c;
+      --warn: #e08a4e; --warn-soft: #2a1e12; --danger: #f0857c; --danger-soft: #2a1513;
+      --ok: #4cc471; --ok-soft: #16281c; --chip: #222933; --code: #1c2128;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #0f1216; --panel: #171b20; --ink: #e7ebef; --muted: #97a1ac;
+    --line: #2a313a; --brand: #4cc471; --brand-soft: #16281c;
+    --warn: #e08a4e; --warn-soft: #2a1e12; --danger: #f0857c; --danger-soft: #2a1513;
+    --ok: #4cc471; --ok-soft: #16281c; --chip: #222933; --code: #1c2128;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font: 15px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 900px; margin: 0 auto; padding: 24px 16px 96px; }
+  header.top { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; margin-bottom: 4px; }
+  .logo { font-weight: 700; letter-spacing: .2px; }
+  .logo b { color: var(--brand); }
+  .sub { color: var(--muted); font-size: 13px; }
+  h1 { font-size: 22px; margin: 14px 0 2px; }
+  .oneliner { color: var(--muted); margin: 0 0 14px; }
+  .meta { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0 20px; }
+  .chip { background: var(--chip); color: var(--ink); border-radius: 999px; padding: 3px 10px; font-size: 12px; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 16px 18px; margin: 14px 0; }
+  .card h2 { font-size: 15px; margin: 0 0 12px; display: flex; align-items: center; gap: 8px; }
+  .card h2 .n { color: var(--muted); font-weight: 500; }
+  .trust { border-color: var(--brand); }
+  .trust .cols { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  @media (max-width: 620px) { .trust .cols { grid-template-columns: 1fr; } }
+  .trust .box { border-radius: 10px; padding: 12px 14px; }
+  .trust .get { background: var(--ok-soft); }
+  .trust .never { background: var(--danger-soft); }
+  .trust .box h3 { margin: 0 0 6px; font-size: 13px; }
+  .trust ul { margin: 0; padding-left: 18px; }
+  .trust li { margin: 3px 0; }
+  .row { padding: 10px 0; border-top: 1px solid var(--line); }
+  .row:first-of-type { border-top: 0; }
+  .row .head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .name { font-weight: 600; }
+  .desc { color: var(--muted); margin: 3px 0 0; }
+  .badge { font-size: 11px; padding: 2px 8px; border-radius: 999px; font-weight: 600; }
+  .b-ok { background: var(--ok-soft); color: var(--ok); }
+  .b-warn { background: var(--warn-soft); color: var(--warn); }
+  .b-danger { background: var(--danger-soft); color: var(--danger); }
+  .b-mute { background: var(--chip); color: var(--muted); }
+  .steps { margin: 6px 0 0; padding-left: 18px; color: var(--muted); }
+  .steps li { margin: 2px 0; }
+  .src { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; color: var(--muted); }
+  .kv { display: grid; grid-template-columns: 150px 1fr; gap: 4px 14px; }
+  @media (max-width: 620px) { .kv { grid-template-columns: 1fr; gap: 0 0; } .kv .k { margin-top: 8px; } }
+  .kv .k { color: var(--muted); }
+  .fresh-banner { border-radius: 10px; padding: 12px 14px; margin: 0 0 12px; font-weight: 600; }
+  .empty { color: var(--muted); font-style: italic; }
+  .findings li { margin: 6px 0; }
+  details.raw { margin-top: 20px; }
+  details.raw summary { cursor: pointer; color: var(--muted); }
+  pre { background: var(--code); border: 1px solid var(--line); border-radius: 10px; padding: 14px; overflow: auto; font-size: 12px; }
+  .drop {
+    border: 2px dashed var(--line); border-radius: var(--radius); padding: 48px 20px; text-align: center;
+    color: var(--muted); background: var(--panel);
+  }
+  .drop.hi { border-color: var(--brand); background: var(--brand-soft); }
+  .drop input { display: none; }
+  .drop label { color: var(--brand); text-decoration: underline; cursor: pointer; }
+  .foot { color: var(--muted); font-size: 12px; margin-top: 28px; text-align: center; }
+  .card h2 { display: flex; align-items: center; }
+  .tc-btn { background: var(--chip); color: var(--ink); border: 1px solid var(--line); border-radius: 8px; padding: 5px 12px; font-size: 13px; cursor: pointer; }
+  .tc-btn.tc-primary { background: var(--brand); color: #fff; border-color: var(--brand); }
+  .tc-case { border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; margin: 10px 0; }
+  .tc-head { display: flex; gap: 8px; align-items: center; margin-bottom: 8px; }
+  .tc-fields { display: flex; gap: 14px; flex-wrap: wrap; margin-bottom: 8px; }
+  .tc-fields label { font-size: 12px; color: var(--muted); display: inline-flex; flex-direction: column; gap: 2px; }
+  .tc-steps { display: flex; flex-direction: column; gap: 6px; margin-bottom: 8px; }
+  .tc-step { display: flex; gap: 6px; }
+  .tc-case input, .tc-case select { padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); color: var(--ink); font: inherit; font-size: 13px; }
+  .tc-do { flex: 1; } .tc-expect { flex: 1; }
+  .tc-expected { width: 100%; }
+  .tc-x { background: transparent; border: 1px solid var(--line); border-radius: 6px; color: var(--muted); cursor: pointer; padding: 4px 8px; }
+  .tc-add-step { align-self: flex-start; background: transparent; border: 1px dashed var(--line); border-radius: 6px; color: var(--brand); cursor: pointer; padding: 4px 10px; font-size: 12px; }
+  a { color: var(--brand); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <span class="logo"><b>Smart</b>Monkey</span>
+    <span class="sub">QA profile — a local view of what this project told the tester</span>
+  </header>
+
+  <div id="cases"></div>
+  <div id="app"></div>
+
+  <div id="loader" class="card" style="display:none">
+    <div class="drop" id="drop">
+      Drop your <b>profile.json</b> here, or <label for="file">choose a file</label>.
+      <input type="file" id="file" accept="application/json,.json">
+      <p class="sub" style="margin-top:10px">Nothing is uploaded — this page reads the file in your browser only.</p>
+    </div>
+  </div>
+
+  <p class="foot">This viewer is static and offline. It never sends anything anywhere. Open the file, read it, then decide what to share.</p>
+</div>
+
+<script>
+"use strict";
+
+// ---- tolerant accessors: the raw profile.json uses forgiving shapes ----------
+function txt(v) {
+  if (v == null) return "";
+  if (typeof v === "string") return v;
+  if (typeof v === "object") return v.what || v.claim || v.method || v.detail || v.note || v.area || v.rule || v.name || v.text || "";
+  return String(v);
+}
+function arr(v) { return Array.isArray(v) ? v : (v == null ? [] : [v]); }
+function esc(s) { return String(s).replace(/[&<>"]/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;" }[c])); }
+function src(o) { return o && o.source ? `<span class="src">${esc(o.source)}</span>` : ""; }
+
+function el(html) { const d = document.createElement("div"); d.innerHTML = html.trim(); return d.firstElementChild; }
+function card(title, n, bodyHtml) {
+  const cnt = (n == null) ? "" : `<span class="n">${n}</span>`;
+  return `<div class="card"><h2>${esc(title)} ${cnt}</h2>${bodyHtml}</div>`;
+}
+function badge(cls, label) { return `<span class="badge ${cls}">${esc(label)}</span>`; }
+function empty(msg) { return `<p class="empty">${esc(msg)}</p>`; }
+
+// ---- section renderers -------------------------------------------------------
+function renderTrust(p) {
+  const secretRefs = arr(p.accounts).filter(a => a && a.credentialsRef).length;
+  return `<div class="card trust"><h2>What SmartMonkey sees — and what it never does</h2>
+    <div class="cols">
+      <div class="box get"><h3>✓ What you deliver</h3><ul>
+        <li>This profile: your app's builds, screens, flows, reset steps</li>
+        <li>The business rules and limits you chose to document</li>
+        <li>The dangers you flagged, so the tester avoids them</li>
+      </ul></div>
+      <div class="box never"><h3>✕ What never leaves your machine</h3><ul>
+        <li>Your source code — the tester reads it here, and only the profile below is shared</li>
+        <li>Any secret — accounts carry <span class="src">env:</span>-style <em>references</em>${secretRefs ? ` (${secretRefs} here)` : ""}, never values</li>
+        <li>This viewer uploads nothing; it reads the file in your browser only</li>
+      </ul></div>
+    </div></div>`;
+}
+
+function renderApp(p) {
+  const vs = arr(p.app && p.app.variants);
+  if (!vs.length) return card("Builds", 0, empty("No build variants listed."));
+  const rows = vs.map(v => {
+    let tag = "";
+    if (v.recommendedForTesting === true) tag = badge("b-ok", "use this build");
+    else if (v.recommendedForTesting === false) tag = badge("b-danger", "not for testing");
+    const why = v.why ? `<p class="desc">${esc(txt(v.why))}</p>` : "";
+    const lbl = v.label && v.label !== v.id ? ` — ${esc(v.label)}` : "";
+    return `<div class="row"><div class="head"><span class="name">${esc(v.id || "?")}</span>${lbl}
+      <span class="src">${esc(v.packageName || "")}</span> ${tag}</div>${why}</div>`;
+  }).join("");
+  return card("Builds", vs.length, rows);
+}
+
+function renderAccess(p) {
+  const a = p.access || {};
+  let h = "";
+  const methods = arr(a.signInMethods).map(txt).filter(Boolean);
+  h += `<div class="kv"><div class="k">Sign-in methods</div><div>${methods.length ? methods.map(esc).join(", ") : '<span class="empty">none found</span>'}</div></div>`;
+  const d = a.devLogin;
+  if (d && (d.available || d.steps)) {
+    h += `<div class="row"><div class="head"><span class="name">Developer / tester shortcut</span>${d.available ? badge("b-ok","available") : ""}</div>`;
+    if (d.whatItUnlocks) h += `<p class="desc"><b>What it unlocks:</b> ${esc(txt(d.whatItUnlocks))}</p>`;
+    if (arr(d.steps).length) h += `<ol class="steps">${arr(d.steps).map(s => `<li>${esc(txt(s))}</li>`).join("")}</ol>`;
+    if (d.success) h += `<p class="desc"><b>Looks right when:</b> ${esc(txt(d.success))}</p>`;
+    h += src(d) + `</div>`;
+  }
+  const perms = arr(a.permissionsOnFirstRun);
+  if (perms.length) {
+    h += `<div class="row"><span class="name">First-run permissions</span>` + perms.map(pm =>
+      `<p class="desc">${esc(txt(pm.permission))} — <b>${esc(pm.recommended || "allow")}</b>${pm.whenAsked ? ` (${esc(txt(pm.whenAsked))})` : ""}</p>`).join("") + `</div>`;
+  }
+  return card("Getting in", null, h);
+}
+
+function renderReset(p) {
+  const c = p.constraints || {};
+  let banner = "";
+  const cf = c.clearProducesFreshInstall;
+  if (cf === false) banner = `<div class="fresh-banner" style="background:var(--danger-soft);color:var(--danger)">⚠ Clearing app data does NOT give a fresh install — data survives. A test that assumes a clean start here can pass or fail for the wrong reason.</div>`;
+  else if (cf === "unknown" || cf == null) banner = `<div class="fresh-banner" style="background:var(--warn-soft);color:var(--warn)">Clearing app data → fresh install: not confirmed. Treated cautiously.</div>`;
+  else if (cf === true) banner = `<div class="fresh-banner" style="background:var(--ok-soft);color:var(--ok)">✓ Clearing app data gives a fresh install.</div>`;
+
+  const rs = arr(p.stateReset);
+  const rows = rs.length ? rs.map(r => {
+    const scope = r.scope ? badge("b-mute", r.scope) : "";
+    const danger = r.danger ? badge("b-danger", "irreversible") : "";
+    let h = `<div class="row"><div class="head"><span class="name">${esc(r.label || r.id || "reset")}</span>${scope}${r.kind ? badge("b-mute", r.kind) : ""}${danger}</div>`;
+    if (arr(r.steps).length) h += `<ol class="steps">${arr(r.steps).map(s => `<li>${esc(txt(s))}</li>`).join("")}</ol>`;
+    if (r.whatItResets) h += `<p class="desc"><b>Resets:</b> ${esc(txt(r.whatItResets))}</p>`;
+    if (r.whatItDoesNotUndo) h += `<p class="desc" style="color:var(--warn)"><b>Does NOT undo:</b> ${esc(txt(r.whatItDoesNotUndo))}</p>`;
+    if (r.danger) h += `<p class="desc" style="color:var(--danger)"><b>Danger:</b> ${esc(txt(r.danger))}</p>`;
+    return h + src(r) + `</div>`;
+  }).join("") : empty("No reset methods listed.");
+  return card("Resetting to a known state", rs.length, banner + rows);
+}
+
+function renderList(title, items, fn) {
+  const a = arr(items);
+  if (!a.length) return card(title, 0, empty("None listed."));
+  return card(title, a.length, a.map(fn).join(""));
+}
+
+function renderScreens(p) {
+  const s = arr(p.screens);
+  if (!s.length) return card("Screens", 0, empty("None listed."));
+  return card("Screens", s.length, s.map(sc => {
+    let b = "";
+    if (sc.webview) b += badge("b-warn", "WebView");
+    if (sc.external) b += badge("b-mute", "leaves app");
+    if (sc.danger) b += badge("b-danger", "danger");
+    const rb = sc.reachedBy ? `<p class="desc">${esc(txt(sc.reachedBy))}</p>` : "";
+    const dg = sc.danger ? `<p class="desc" style="color:var(--danger)">${esc(txt(sc.danger))}</p>` : "";
+    return `<div class="row"><div class="head"><span class="name">${esc(sc.name || sc.id || "screen")}</span>${b}</div>${rb}${dg}</div>`;
+  }).join(""));
+}
+
+function renderProhibited(p) {
+  const pr = arr(p.prohibited);
+  let h = pr.length ? pr.map(x =>
+    `<div class="row"><div class="head">${badge("b-danger","never")}<span class="name">${esc(txt(x.action || x))}</span></div>${x.why ? `<p class="desc">${esc(txt(x.why))}</p>` : ""}</div>`).join("") : empty("Nothing marked prohibited.");
+  const td = p.testData || {};
+  if (arr(td.mustNotTouch).length) h += `<div class="row"><span class="name">Leave alone</span><p class="desc">${arr(td.mustNotTouch).map(esc).join("; ")}</p></div>`;
+  if (arr(td.mayCreate).length) h += `<div class="row"><span class="name">May create / modify</span><p class="desc">${arr(td.mayCreate).map(esc).join("; ")}</p></div>`;
+  return card("What must never happen", pr.length, h);
+}
+
+function renderFindings(p) {
+  const f = arr(p.findings);
+  if (!f.length) return "";
+  return card("What the project told us about itself", f.length,
+    `<ul class="findings">${f.map(x => `<li><b>${esc(x.topic || "note")}:</b> ${esc(txt(x.claim || x))} ${src(x)}</li>`).join("")}</ul>`);
+}
+
+function renderOpenQuestions(p) {
+  const q = arr(p.openQuestions);
+  if (!q.length) return "";
+  const body = q.map(x => {
+    const blk = x.blocks && x.blocks !== "nothing" ? badge(x.blocks === "run" ? "b-danger" : "b-warn", `blocks ${x.blocks}`) : "";
+    const opts = Array.isArray(x.options) && x.options.length
+      ? `<p class="desc">Choose: ${x.options.map(o => `<span class="badge b-mute">${esc(o)}</span>`).join(" ")}</p>` : "";
+    const ans = x.answer ? `<p class="desc" style="color:var(--ok)">Answered: ${esc(txt(x.answer))}</p>` : "";
+    return `<div class="row"><div class="head"><span class="name">${esc(txt(x.question || x))}</span>${blk}</div>${x.whyItMatters ? `<p class="desc">${esc(txt(x.whyItMatters))}</p>` : ""}${opts}${ans}</div>`;
+  }).join("");
+  return card("Open questions for the owner", q.length,
+    `<p class="desc">You answer these in SmartMonkey after uploading — they're the things the code couldn't settle.</p>${body}`);
+}
+
+// ---- top-level render --------------------------------------------------------
+function render(p) {
+  const proj = p.project || {};
+  const app = p.app || {};
+  const meta = [];
+  arr(proj.platforms).forEach(x => meta.push(esc(x)));
+  arr(proj.stack).forEach(x => meta.push(esc(x)));
+  if (p.generatedAt) meta.push(esc(p.generatedAt));
+  if (p.commit) meta.push("commit " + esc(String(p.commit).slice(0, 12)));
+  const chips = meta.map(m => `<span class="chip">${m}</span>`).join("");
+
+  const html = `
+    <h1>${esc(proj.name || app.name || "Untitled project")}</h1>
+    ${proj.oneLiner ? `<p class="oneliner">${esc(proj.oneLiner)}</p>` : ""}
+    <div class="meta">${chips}</div>
+    ${renderTrust(p)}
+    ${renderApp(p)}
+    ${renderAccess(p)}
+    ${renderReset(p)}
+    ${(() => { const g = p.testGuidance || {}; const bits = [];
+      if (arr(g.priorities).length) bits.push(`<p class="desc"><b>Focus first:</b> ${arr(g.priorities).map(esc).join("; ")}</p>`);
+      if (g.coverage) bits.push(`<p class="desc"><b>Coverage:</b> ${esc(g.coverage)}</p>`);
+      if (g.cleanup) bits.push(`<p class="desc"><b>Cleanup:</b> ${esc(txt(g.cleanup))}</p>`);
+      return bits.length ? card("Testing focus", null, bits.join("")) : ""; })()}
+    ${renderProhibited(p)}
+    ${renderScreens(p)}
+    ${renderList("Business rules", p.businessRules, r => `<div class="row">${esc(txt(r.rule || r))} ${src(r)}</div>`)}
+    ${renderList("Test shortcuts (back doors)", p.shortcuts, s => `<div class="row"><div class="head"><span class="name">${esc(s.name || s.kind || "shortcut")}</span>${badge("b-mute", s.kind || "")}${arr(s.use).map(u => badge("b-ok", u)).join("")}</div><p class="desc">${esc(txt(s.does || ""))}${s.how ? ` — ${esc(txt(s.how))}` : ""}${s.auth ? ` <span class="src">auth: ${esc(s.auth)}</span>` : ""}</p>${s.danger ? `<p class="desc" style="color:var(--warn)">${esc(txt(s.danger))}</p>` : ""}</div>`)}
+    ${renderList("Existing tests", p.existingTests, t => `<div class="row"><div class="head"><span class="name">${esc(t.where || t.format || "tests")}</span>${badge("b-mute", t.format || "other")}${t.count != null ? `<span class="src">${esc(t.count)} tests</span>` : ""}</div>${t.formatDetail ? `<p class="desc">${esc(txt(t.formatDetail))}</p>` : ""}</div>`)}
+    ${renderFindings(p)}
+    ${renderOpenQuestions(p)}
+    <details class="raw"><summary>View the raw profile.json (exactly what is delivered)</summary><pre>${esc(JSON.stringify(p, null, 2))}</pre></details>
+  `;
+  document.getElementById("app").innerHTML = html;
+  document.getElementById("loader").style.display = "none";
+  PROFILE = p; STATES = computeStates(p); renderCases();
+}
+
+// ---- cases editor: view / edit / add / delete, then download cases.json ------
+// The static kit's version of "generate on your side, see and edit easily". It
+// never uploads; you download the edited cases.json and import it in SmartMonkey.
+let PROFILE = null, CASES = [], STATES = [];
+
+function computeStates(p) {
+  const s = ["fresh", "logged_out"];
+  arr(p && p.baseConditions).forEach(b => b && b.id && s.push(b.id));
+  arr(p && p.accounts).forEach(a => a && a.label && s.push("logged_in:" + a.label));
+  return s;
+}
+
+function syncCasesFromDOM() {
+  document.querySelectorAll("#cases .tc-case").forEach(cardEl => {
+    const i = Number(cardEl.dataset.i);
+    const c = CASES[i]; if (!c) return;
+    const get = sel => { const e = cardEl.querySelector(sel); return e ? e.value.trim() : ""; };
+    c.id = get(".tc-id") || c.id;
+    c.title = get(".tc-title");
+    c.priority = get(".tc-priority") || "medium";
+    const req = get(".tc-requires"); if (req) c.requires = req; else delete c.requires;
+    c.expected = get(".tc-expected");
+    c.steps = [...cardEl.querySelectorAll(".tc-step")].map(row => {
+      const doV = row.querySelector(".tc-do").value.trim();
+      const exV = row.querySelector(".tc-expect").value.trim();
+      const step = { do: doV }; if (exV) step.expect = exV; return step;
+    }).filter(st => st.do);
+  });
+}
+
+function stepRow(st) {
+  return `<div class="tc-step">
+    <input class="tc-do" placeholder="do: what the tester does" value="${esc(st.do || "")}">
+    <input class="tc-expect" placeholder="expect: a checkable observation (optional)" value="${esc(st.expect || "")}">
+    <button class="tc-x" data-act="del-step" title="Remove step">×</button>
+  </div>`;
+}
+
+function caseCard(c, i) {
+  const reqOpts = ["", ...STATES];
+  if (c.requires && !reqOpts.includes(c.requires)) reqOpts.push(c.requires);
+  const prio = ["low", "medium", "high", "critical"];
+  const stepCount = arr(c.steps).length;
+  return `<div class="tc-case" data-i="${i}">
+    <div class="tc-head">
+      <input class="tc-id" value="${esc(c.id || ("TC-" + (i + 1)))}" title="id" style="width:90px">
+      <input class="tc-title" placeholder="Title" value="${esc(c.title || "")}" style="flex:1">
+      <button class="tc-x" data-act="del-case" title="Delete case">Delete</button>
+    </div>
+    <div class="tc-fields">
+      <label>Needs state
+        <select class="tc-requires">${reqOpts.map(o => `<option${o === (c.requires || "") ? " selected" : ""}>${esc(o)}</option>`).join("")}</select>
+      </label>
+      <label>Priority
+        <select class="tc-priority">${prio.map(o => `<option${o === (c.priority || "medium") ? " selected" : ""}>${esc(o)}</option>`).join("")}</select>
+      </label>
+    </div>
+    <div class="tc-steps">${(arr(c.steps).length ? c.steps : [{ do: "" }]).map(stepRow).join("")}
+      <button class="tc-add-step" data-act="add-step">+ step</button>
+    </div>
+    <input class="tc-expected" placeholder="Expected result (the overall pass condition)" value="${esc(c.expected || "")}">
+    ${c.goal ? `<p class="desc">goal: ${esc(c.goal)}</p>` : ""}
+  </div>`;
+}
+
+function renderCases() {
+  const mount = document.getElementById("cases");
+  if (!mount) return;
+  if (!CASES.length && !PROFILE) { mount.innerHTML = ""; return; }
+  mount.innerHTML = `<div class="card"><h2>Test cases <span class="n">${CASES.length}</span>
+      <span style="margin-left:auto;display:inline-flex;gap:8px">
+        <button class="tc-btn" id="tc-add">+ Add case</button>
+        <button class="tc-btn tc-primary" id="tc-save">Download cases.json</button>
+      </span></h2>
+    <p class="desc">Edit here, then download <b>cases.json</b> and import it in SmartMonkey (Test cases → Import JSON → choose file). Nothing is uploaded from this page.</p>
+    ${CASES.length ? CASES.map(caseCard).join("") : empty("No cases yet — click “+ Add case”, or drop a cases.json here.")}
+  </div>`;
+}
+
+function downloadCases() {
+  syncCasesFromDOM();
+  const out = CASES.map(c => {
+    const o = { ...c };
+    if (!o.requires) delete o.requires;
+    o.steps = arr(o.steps).filter(s => s && s.do);
+    if (!o.goal) delete o.goal;
+    return o;
+  });
+  const blob = new Blob([JSON.stringify(out, null, 2)], { type: "application/json" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob); a.download = "cases.json";
+  a.click(); URL.revokeObjectURL(a.href);
+}
+
+// One delegated click handler for the whole editor.
+document.getElementById("cases").addEventListener("click", e => {
+  const btn = e.target.closest("button"); if (!btn) return;
+  const act = btn.dataset.act;
+  if (btn.id === "tc-save") return downloadCases();
+  if (btn.id === "tc-add") { syncCasesFromDOM(); CASES.push({ id: "TC-" + (CASES.length + 1), title: "", priority: "medium", steps: [{ do: "" }], expected: "" }); return renderCases(); }
+  const cardEl = btn.closest(".tc-case"); if (!cardEl) return;
+  const i = Number(cardEl.dataset.i);
+  syncCasesFromDOM();
+  if (act === "del-case") { CASES.splice(i, 1); renderCases(); }
+  else if (act === "add-step") { CASES[i].steps = arr(CASES[i].steps); CASES[i].steps.push({ do: "" }); renderCases(); }
+  else if (act === "del-step") {
+    const row = btn.closest(".tc-step");
+    const idx = [...cardEl.querySelectorAll(".tc-step")].indexOf(row);
+    CASES[i].steps.splice(idx, 1); renderCases();
+  }
+});
+
+function loadCases(data) {
+  const list = Array.isArray(data) ? data : (data && Array.isArray(data.cases) ? data.cases : null);
+  if (!list) return false;
+  CASES = list; renderCases(); return true;
+}
+
+// ---- loading: fetch siblings (http) → else drag/drop / file-picker -----------
+// Detect what was dropped: a profile (has smartmonkeyProfile) vs cases (array / {cases}).
+function tryLoad(json) {
+  let obj;
+  try { obj = typeof json === "string" ? JSON.parse(json) : json; }
+  catch (e) { alert("That file is not valid JSON: " + e.message); return false; }
+  if (Array.isArray(obj) || (obj && Array.isArray(obj.cases))) return loadCases(obj);
+  try { render(obj); return true; } catch (e) { alert("Could not read that file: " + e.message); return false; }
+}
+function showLoader() { document.getElementById("loader").style.display = "block"; }
+
+function wireLoader() {
+  const drop = document.getElementById("drop");
+  const file = document.getElementById("file");
+  file.addEventListener("change", e => { const f = e.target.files[0]; if (f) f.text().then(tryLoad); });
+  ["dragover","dragenter"].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.add("hi"); }));
+  ["dragleave","drop"].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.remove("hi"); }));
+  drop.addEventListener("drop", e => { const f = e.dataTransfer.files[0]; if (f) f.text().then(tryLoad); });
+}
+
+(function init() {
+  wireLoader();
+  const params = new URLSearchParams(location.search);
+  const srcName = params.get("src") || "profile.json";
+  // Works when served over http(s); file:// fetch is blocked, so fall back to the picker.
+  fetch(srcName).then(r => { if (!r.ok) throw 0; return r.text(); }).then(tryLoad).catch(showLoader);
+  // Also pick up a sibling cases.json if it's there (http only).
+  fetch("cases.json").then(r => { if (!r.ok) throw 0; return r.json(); }).then(loadCases).catch(() => {});
+})();
+</script>
+</body>
+</html>

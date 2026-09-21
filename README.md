@@ -1,0 +1,76 @@
+# smartmonkey-client
+
+The local client for **SmartMonkey** QA. One command instead of loose files: it
+scaffolds the profiling kit into your repo, runs the profiling with **your own
+AI**, serves a viewer + case editor, and checks freshness — all on your machine.
+**Your source never leaves your machine**; only the `profile.json` / `cases.json`
+you approve is ever shared.
+
+```
+npx smartmonkey-client run          # profile (auto-picks your logged-in AI CLI), then opens the editor
+npx smartmonkey-client view         # open the local viewer + case editor
+npx smartmonkey-client check --watch # has the code moved since the profile was built?
+npx smartmonkey-client drivers      # which AI CLIs are available here
+npx smartmonkey-client init         # just scaffold ./smartmonkey/
+```
+
+Installed globally (`npm i -g smartmonkey-client`), the command is just
+`smartmonkey`:
+
+```
+smartmonkey run
+```
+
+## The AI runs on your side
+
+`smartmonkey run` runs the profiling with **your own AI**, on your machine, two
+ways — it auto-picks whichever fits:
+
+**A logged-in CLI you already have** — **Claude Code, OpenAI Codex, Cursor, or
+Gemini**. `smartmonkey run` hands it the profiling prompt in your repo; it reads
+your code and writes `smartmonkey/profile.json` (and `cases.json` if you ask).
+
+- `--driver <claude|codex|cursor|gemini>` — force one instead of auto-picking.
+
+**Your API key (embedded, no CLI needed)** — pass `--key <API key>` and
+`smartmonkey` runs a small built-in agent itself. It reads the repo through
+read-only tools, interviews you in the terminal, and writes **only**
+`smartmonkey/*.json` — nothing else on disk is touched. **Anthropic, OpenAI, and
+Gemini** keys all work; the provider is inferred from the key's shape (or your
+environment), and each has a sensible default model you can override:
+
+| Provider | Inferred from | Env var | Default model |
+| --- | --- | --- | --- |
+| Anthropic | `sk-ant-…` | `ANTHROPIC_API_KEY` | `claude-sonnet-5` |
+| OpenAI | `sk-…` | `OPENAI_API_KEY` | `gpt-5-mini` |
+| Gemini | `AIza…` | `GEMINI_API_KEY` / `GOOGLE_API_KEY` | `gemini-flash-latest` |
+
+- `--key <API key>` — run embedded with your own key.
+- `--provider <anthropic|openai|gemini>` — force one (else inferred from the key/env).
+- `--model <id>` — override the model.
+- `--dry-run` — show what it would launch without running it.
+
+Either way: we never see your code. The AI runs on your machine and only the
+`profile.json` / `cases.json` you approve is ever shared.
+
+## Privacy
+
+The profile carries **no source**: no file paths, no line numbers, no
+class/package names, no pasted code — only your app's behaviour described in
+words, anchored to the build commit. Secrets are referenced (`env:NAME`), never
+embedded. `smartmonkey check` diffs your working tree against that commit
+locally to tell you whether the profile is still fresh.
+
+## Develop
+
+```
+npm test        # runs the embedded-driver + provider-translator unit tests (no API key needed)
+```
+
+Zero runtime dependencies (Node ≥ 18 builtins only). The `assets/` directory is
+the bundled profiling kit (prompt, viewer/editor, freshness checker); it is kept
+in sync from the SmartMonkey server's own copy.
+
+## License
+
+MIT — see [LICENSE](LICENSE).
