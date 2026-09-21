@@ -93,14 +93,20 @@ function logLine(t) { const el = $('log'); el.textContent += t.endsWith('\n') ? 
 // Populate the driver <select> from /api/drivers, without changing the server's
 // selection. Returns the list of AVAILABLE drivers.
 async function populateDrivers(selectId) {
-  const { drivers } = await api('GET', '/api/drivers');
   const sel = $('driver');
-  const available = drivers.filter(d => d.available);
+  const res = await api('GET', '/api/drivers');
+  const drivers = res && res.drivers;
   sel.innerHTML = '';
+  if (!drivers) {   // endpoint missing (a stale server still running old code) or unreachable
+    $('driverNote').textContent = 'Could not load CLIs from the app server. If you just updated SmartMonkey, restart it: stop `smartmonkey app` (Ctrl-C) and run it again.';
+    sel.disabled = true;
+    return [];
+  }
+  const available = drivers.filter(d => d.available);
   if (!available.length) {
     $('driverNote').textContent = 'No logged-in CLI found — sign in to Claude Code / Codex / Cursor / Gemini, or use Platform mode.';
     sel.disabled = true;
-    return available;
+    return [];
   }
   $('driverNote').textContent = '';
   sel.disabled = false;
