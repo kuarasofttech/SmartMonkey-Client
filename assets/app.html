@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>SmartMonkey</title>
+<style>
+  :root { --bg:#0f1115; --card:#171a21; --border:#2a2f3a; --text:#e6e8ec; --muted:#9aa3b2; --primary:#3ddc97; --primary-ink:#06281c; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); font:15px/1.5 system-ui,-apple-system,Segoe UI,Roboto,sans-serif; }
+  .wrap { max-width: 760px; margin: 0 auto; padding: 24px 16px; }
+  h1 { font-size: 20px; margin: 0 0 4px; }
+  .sub { color: var(--muted); margin: 0 0 20px; }
+  .card { background:var(--card); border:1px solid var(--border); border-radius:12px; padding:16px; margin-bottom:16px; }
+  label { display:block; font-size:13px; color:var(--muted); margin:10px 0 4px; }
+  select, input { width:100%; padding:9px 10px; background:#0d0f14; border:1px solid var(--border); border-radius:8px; color:var(--text); }
+  button { padding:9px 14px; border:0; border-radius:8px; background:var(--primary); color:var(--primary-ink); font-weight:600; cursor:pointer; }
+  button[disabled] { opacity:.5; cursor:not-allowed; }
+  .row { display:flex; gap:10px; align-items:flex-end; }
+  .row > div { flex:1; }
+  .status { font-size:12px; color:var(--muted); margin-top:8px; }
+  #log { background:#0d0f14; border:1px solid var(--border); border-radius:8px; padding:12px; height:280px; overflow:auto; white-space:pre-wrap; font:13px/1.5 ui-monospace,Menlo,monospace; }
+  .ask { border:1px solid var(--primary); border-radius:8px; padding:12px; margin:10px 0; }
+  .ask .opts label { display:flex; align-items:center; gap:8px; color:var(--text); margin:6px 0; }
+  .ask .opts input { width:auto; }
+  a { color: var(--primary); }
+  .hide { display:none; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>SmartMonkey</h1>
+  <p class="sub">Blueprint your app for AI QA — locally, with your own AI. Nothing but the blueprint you approve leaves this machine.</p>
+
+  <div class="card">
+    <b>1 · Your AI</b>
+    <div class="row">
+      <div>
+        <label>Provider</label>
+        <select id="provider">
+          <option value="anthropic">Anthropic</option>
+          <option value="openai">OpenAI</option>
+          <option value="gemini">Gemini</option>
+        </select>
+      </div>
+      <div>
+        <label>Model</label>
+        <input id="model" placeholder="(default)" />
+      </div>
+    </div>
+    <label>API key <span id="kc" class="status"></span></label>
+    <div class="row">
+      <div><input id="key" type="password" placeholder="sk-… (stored in your OS keychain)" /></div>
+      <button id="saveKey">Save</button>
+    </div>
+    <div class="status" id="aiStatus"></div>
+  </div>
+
+  <div class="card">
+    <b>2 · Build the blueprint</b>
+    <p class="sub">Reads your repo, interviews you below, and writes <code>smartmonkey/blueprint.json</code>.</p>
+    <button id="gen" disabled>Build blueprint</button>
+    <div id="asks"></div>
+    <label style="margin-top:14px">Progress</label>
+    <div id="log"></div>
+    <p id="doneMsg" class="status hide">Done — <a href="/view.html" target="_blank">review &amp; edit the blueprint →</a></p>
+  </div>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+const api = (method, path, body) => fetch(path, { method, headers: body ? { 'content-type': 'application/json' } : {}, body: body ? JSON.stringify(body) : undefined }).then(r => r.json().catch(() => ({})));
+function logLine(t) { const el = $('log'); el.textContent += t.endsWith('\n') ? t : t + '\n'; el.scrollTop = el.scrollHeight; }
+
+async function refresh() {
+  const s = await api('GET', '/api/status');
+  $('kc').textContent = s.keychain.available ? '· saved in OS keychain' : '· keychain unavailable, kept for this session only';
+  $('aiStatus').textContent = s.ai.ready ? `Ready: ${s.ai.provider} · ${s.ai.model}` : 'Set a provider + key to enable Build.';
+  $('gen').disabled = !s.ai.ready || s.run.status === 'running';
+  if (s.blueprint.exists) $('doneMsg').classList.remove('hide');
+  if (s.pendingAsk) renderAsk(s.pendingAsk);
+}
+
+$('saveKey').onclick = async () => {
+  await api('POST', '/api/ai', { provider: $('provider').value, model: $('model').value || undefined, key: $('key').value || undefined });
+  $('key').value = '';
+  refresh();
+};
+$('provider').onchange = () => api('POST', '/api/ai', { provider: $('provider').value, model: $('model').value || undefined }).then(refresh);
+
+$('gen').onclick = async () => {
+  $('log').textContent = ''; $('asks').innerHTML = ''; $('doneMsg').classList.add('hide');
+  await api('POST', '/api/generate');
+  refresh();
+};
+
+function renderAsk(a) {
+  if (document.getElementById('ask-' + a.id)) return;
+  const box = document.createElement('div'); box.className = 'ask'; box.id = 'ask-' + a.id;
+  const q = document.createElement('div'); q.textContent = a.question; box.appendChild(q);
+  let getVal;
+  if (a.options && a.options.length) {
+    const opts = document.createElement('div'); opts.className = 'opts';
+    a.options.forEach((o, i) => {
+      const l = document.createElement('label');
+      const r = document.createElement('input'); r.type = 'radio'; r.name = a.id; r.value = o; if (i === 0) r.checked = true;
+      l.appendChild(r); l.appendChild(document.createTextNode(o)); opts.appendChild(l);
+    });
+    box.appendChild(opts);
+    getVal = () => (box.querySelector('input:checked') || {}).value || a.options[0];
+  } else {
+    const inp = document.createElement('input'); inp.placeholder = 'Your answer'; box.appendChild(inp);
+    getVal = () => inp.value;
+  }
+  const btn = document.createElement('button'); btn.textContent = 'Answer';
+  btn.onclick = async () => { btn.disabled = true; await api('POST', '/api/answer', { id: a.id, answer: getVal() }); box.remove(); };
+  box.appendChild(document.createElement('br')); box.appendChild(btn);
+  $('asks').appendChild(box);
+}
+
+const es = new EventSource('/api/events');
+es.addEventListener('text', e => logLine(JSON.parse(e.data)));
+es.addEventListener('tool', e => { const d = JSON.parse(e.data); logLine(`· ${d.name} ${d.summary || ''}`); });
+es.addEventListener('ask', e => renderAsk(JSON.parse(e.data)));
+es.addEventListener('done', e => { logLine('\n✓ Done.'); refresh(); });
+es.addEventListener('error', e => { try { logLine('\n✗ ' + JSON.parse(e.data).message); } catch {} });
+
+refresh();
+</script>
+</body>
+</html>
