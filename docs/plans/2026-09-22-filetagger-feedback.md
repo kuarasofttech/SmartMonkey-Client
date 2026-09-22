@@ -16,7 +16,13 @@ fallback, python removed. (Source of truth = organiclaw
 sync manifest + client bundled asset + scaffold output + all readers
 (cli.mjs, server.mjs). It's the prompt that BUILDS the blueprint, not the output.
 
-## ⬜ #1 — Connect-services flow gate (NEXT; decision: gate now, real connectors later)
+## ✅ #1 — Connect-services flow gate (DONE, client `3413aff`, organiclaw `c3eca89`; spec `docs/specs/2026-09-22-connect-gate.md`)
+Shipped: `request_connections` tool pauses after the interview → app "Connect your
+tools" panel (Connect/Skip per tool) → Start enabled only when each is resolved
+(server-enforced) → agent resumes. Connectors are STUBS (real OAuth = 3b).
+Verified with a server-flow test + live in the browser.
+
+### original note
 Root cause: `builder-prompt.md` tells the agent to pull from
 Jira/Xray/Confluence/Figma "via a connector, a token, or files", but there is NO
 connector wiring — so it asks, then blueprints anyway (useless).
