@@ -310,7 +310,7 @@ await check('stopping at the connect panel never starts the build', async () => 
   await new Promise(r => setTimeout(r, 150));
   assert.equal(calls, 0, 'no build after a stop');
   const st = await req(port, 'GET', '/api/status');
-  assert.equal(st.json.run.status, 'idle');
+  assert.equal(st.json.run.status, 'stopped');
   assert.equal((await req(port, 'POST', '/api/generate', { answers: {} })).status, 202, 'a new run is allowed after stopping');
   s.destroy(); app.server.close();
 });
@@ -329,6 +329,116 @@ await check('CLI mode: runCli gets the answers-first prompt, and its progress ev
   assert.match(got, /staging/);
   assert.ok(s.events.some(e => e.type === 'tool' && e.data.summary === 'README.md'), 'CLI progress streamed as SSE');
   s.destroy(); app.server.close();
+});
+
+// ---- mid-run questions from a headless CLI (the ask_user MCP bridge) + Stop -----------
+const reqH = (port, method, path, body, headers = {}) => new Promise((resolve, reject) => {
+  const data = body ? JSON.stringify(body) : null;
+  const r = http.request({ host: '127.0.0.1', port, method, path, headers: { ...(data ? { 'content-type': 'application/json', 'content-length': Buffer.byteLength(data) } : {}), ...headers } }, res => {
+    let buf = ''; res.on('data', c => buf += c); res.on('end', () => resolve({ status: res.statusCode, json: buf ? JSON.parse(buf) : null }));
+  });
+  r.on('error', reject); if (data) r.write(data); r.end();
+});
+function pendingCliApp(extra = {}) {
+  const cwd = mkdtempSync(join(tmpdir(), 'sm-app-'));
+  const run = { bridge: null, cancelled: false, done: null };
+  const runCli = ({ askBridge, onDone }) => { run.bridge = askBridge; run.done = onDone; return { launched: true, headless: true, cancel: () => { run.cancelled = true; } }; };
+  const app = createApp({ cwd, secrets: makeSecrets({ platform: 'win32' }), detectDrivers: () => [{ id: 'claude', bin: 'claude', label: 'Claude Code' }], runCli, askPollMs: 150, ...extra });
+  return { app, run };
+}
+
+await check('agent-ask: the CLI run gets a bridge URL+token; the endpoint rejects a bad token and 409s with no run', async () => {
+  const { app, run } = pendingCliApp();
+  const port = await app.listen(0);
+  assert.equal((await reqH(port, 'POST', '/api/agent-ask', { question: 'x' }, { 'x-smartmonkey-token': 'nope' })).status, 403);
+  await req(port, 'POST', '/api/ai', { mode: 'cli', driver: 'claude' });
+  await req(port, 'POST', '/api/generate', { answers: {} });
+  assert.ok(await waitFor(() => run.bridge), 'runCli got a bridge');
+  assert.match(run.bridge.url, new RegExp(`^http://127\\.0\\.0\\.1:${port}/api/agent-ask$`));
+  assert.ok(run.bridge.token && run.bridge.token.length >= 16);
+  assert.equal((await reqH(port, 'POST', '/api/agent-ask', { question: 'x' }, { 'x-smartmonkey-token': 'nope' })).status, 403);
+  run.done();
+  await waitFor(async () => false, 50);
+  const idle = await reqH(port, 'POST', '/api/agent-ask', { question: 'x' }, { 'x-smartmonkey-token': run.bridge.token });
+  assert.equal(idle.status, 409, 'no run → no questions');
+  app.server.close();
+});
+
+await check('agent-ask round trip: question shows in the page (multi), long-poll is pending, then returns the answer', async () => {
+  const { app, run } = pendingCliApp();
+  const port = await app.listen(0);
+  const s = sse(port);
+  await req(port, 'POST', '/api/ai', { mode: 'cli', driver: 'claude' });
+  await req(port, 'POST', '/api/generate', { answers: {} });
+  await waitFor(() => run.bridge);
+  const H = { 'x-smartmonkey-token': run.bridge.token };
+  const posted = await reqH(port, 'POST', '/api/agent-ask', { question: 'Which platforms ship?', options: ['Android', 'iOS'], multi: true }, H);
+  assert.equal(posted.status, 200); assert.ok(posted.json.id);
+  assert.ok(await waitFor(() => s.has('ask')));
+  const ask = s.get('ask').data;
+  assert.equal(ask.question, 'Which platforms ship?'); assert.equal(ask.multi, true);
+  const early = await reqH(port, 'GET', `/api/agent-ask/${posted.json.id}`, null, H);
+  assert.equal(early.json.pending, true, 'no answer yet → pending after the poll window');
+  await req(port, 'POST', '/api/answer', { id: ask.id, answer: ['Android', 'iOS'] });
+  const got = await reqH(port, 'GET', `/api/agent-ask/${posted.json.id}`, null, H);
+  assert.deepEqual(got.json, { answer: 'Android, iOS' });
+  s.destroy(); app.server.close();
+});
+
+await check('Stop during a headless run: cancels the CLI, answers a waiting question with "", reports stopped', async () => {
+  const { app, run } = pendingCliApp();
+  const port = await app.listen(0);
+  const s = sse(port);
+  await req(port, 'POST', '/api/ai', { mode: 'cli', driver: 'claude' });
+  await req(port, 'POST', '/api/generate', { answers: {} });
+  await waitFor(() => run.bridge);
+  const H = { 'x-smartmonkey-token': run.bridge.token };
+  const posted = await reqH(port, 'POST', '/api/agent-ask', { question: 'q?' }, H);
+  await waitFor(() => s.has('ask'));
+  const poll = reqH(port, 'GET', `/api/agent-ask/${posted.json.id}`, null, H);
+  await req(port, 'POST', '/api/stop');
+  assert.deepEqual((await poll).json, { answer: '' }, 'the waiting question is released');
+  assert.equal(run.cancelled, true);
+  assert.ok(await waitFor(() => s.has('stopped')));
+  assert.equal((await req(port, 'GET', '/api/status')).json.run.status, 'stopped');
+  assert.equal((await req(port, 'POST', '/api/generate', { answers: {} })).status, 202, 'can start again right away');
+  s.destroy(); app.server.close();
+});
+
+await check('Stop during an embedded (API-key) run is immediate; the old run cannot report done afterwards', async () => {
+  const cwd = mkdtempSync(join(tmpdir(), 'sm-app-'));
+  let release;
+  const gate = new Promise(r => { release = r; });
+  let calls = 0;
+  const mockModel = async () => { calls++; if (calls === 1) await gate; return { content: [{ type: 'text', text: 'ok' }], stop_reason: 'end_turn' }; };
+  const app = createApp({ cwd, secrets: makeSecrets({ platform: 'win32' }), modelFactory: () => mockModel });
+  const port = await app.listen(0);
+  const s = sse(port);
+  await req(port, 'POST', '/api/ai', { provider: 'anthropic', key: 'sk-ant-x' });
+  await req(port, 'POST', '/api/generate', { answers: {} });
+  await waitFor(() => calls === 1);
+  await req(port, 'POST', '/api/stop');
+  const st = await req(port, 'GET', '/api/status');
+  assert.equal(st.json.run.status, 'stopped', 'stopped at once, not after the model call returns');
+  release();
+  await new Promise(r => setTimeout(r, 100));
+  assert.equal(s.has('done'), false, 'the stopped run never reports done');
+  assert.equal((await req(port, 'GET', '/api/status')).json.run.status, 'stopped');
+  s.destroy(); app.server.close();
+});
+
+await check('the answers block now invites project-specific questions via ask_user', async () => {
+  const cwd = mkdtempSync(join(tmpdir(), 'sm-app-'));
+  let got = null;
+  const runCli = ({ prompt, onDone }) => { got = prompt; onDone(); return { launched: true, headless: true }; };
+  const app = createApp({ cwd, secrets: makeSecrets({ platform: 'win32' }), detectDrivers: () => [{ id: 'claude', bin: 'claude', label: 'Claude Code' }], runCli });
+  const port = await app.listen(0);
+  await req(port, 'POST', '/api/ai', { mode: 'cli', driver: 'claude' });
+  await req(port, 'POST', '/api/generate', { answers: {} });
+  await waitFor(() => got);
+  assert.match(got, /ask_user/);
+  assert.match(got, /project-specific/i);
+  app.server.close();
 });
 
 if (failures) { console.error(`\n${failures} failure(s)`); process.exit(1); }

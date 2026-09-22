@@ -22,7 +22,7 @@ export const TOOLS = [
   { name: 'list_dir', description: 'List entries of a directory in the repo (dirs end with /).', input_schema: { type: 'object', properties: { path: { type: 'string' } } } },
   { name: 'search', description: 'Search the repo for a substring/regex; returns matching path:line: text.', input_schema: { type: 'object', properties: { query: { type: 'string' }, path: { type: 'string' } }, required: ['query'] } },
   { name: 'git', description: 'Run a READ-ONLY git command (rev-parse, log, diff, ls-files, show, status, branch).', input_schema: { type: 'object', properties: { args: { type: 'array', items: { type: 'string' } } }, required: ['args'] } },
-  { name: 'ask_user', description: 'Ask the project owner a question and get their answer. Provide options for a menu when the answer is a choice.', input_schema: { type: 'object', properties: { question: { type: 'string' }, options: { type: 'array', items: { type: 'string' } } }, required: ['question'] } },
+  { name: 'ask_user', description: 'Ask the project owner a project-specific question in the app and wait for the answer. Give 2–6 short options when the answer is one of a few choices (set multi: true if several can apply); they can still type their own answer. One question per call.', input_schema: { type: 'object', properties: { question: { type: 'string' }, options: { type: 'array', items: { type: 'string' } }, multi: { type: 'boolean' } }, required: ['question'] } },
   { name: 'request_connections', description: 'AFTER the interview, if the blueprint will draw on external tools (Jira, Figma, Confluence, TestRail, …), call this ONCE with those tool names. It pauses so the user can connect or skip each in the app, then returns — only then continue and build the blueprint. Do not call it if no external tools are involved.', input_schema: { type: 'object', properties: { services: { type: 'array', items: { type: 'string' } } }, required: ['services'] } },
   { name: 'write_file', description: 'Write an output file. Only paths under smartmonkey/ are allowed (blueprint.json, cases.json).', input_schema: { type: 'object', properties: { path: { type: 'string' }, contents: { type: 'string' } }, required: ['path', 'contents'] } },
 ];
@@ -78,7 +78,7 @@ export function makeToolRunner(cwd, ask, requestConnections = async () => 'No co
       if (r.status !== 0) throw new Error((r.stderr || 'git failed').split('\n')[0]);
       return r.stdout.slice(0, 50_000);
     }
-    if (name === 'ask_user') return ask(input.question || '', input.options);
+    if (name === 'ask_user') return ask(input.question || '', input.options, input.multi);
     if (name === 'request_connections') return requestConnections(input.services || []);
     if (name === 'write_file') {
       const rel = (input.path || '').replace(/\\/g, '/');

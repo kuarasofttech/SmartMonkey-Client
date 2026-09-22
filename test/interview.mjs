@@ -63,7 +63,8 @@ check('answersBlock: says the interview is done, carries every answer, and tight
   const a = normalizeAnswers({ produce: 'blueprint+cases', casesSource: 'jira', casesAccess: 'token', build: 'devDebug', docs: ['figma'] });
   const b = answersBlock(a, 'Connected: Jira. Skipped: Figma.');
   assert.match(b, /already (been )?answered|ALREADY DONE/i);
-  assert.match(b, /do not ask/i);
+  assert.match(b, /do not re-ask/i);
+  assert.match(b, /ask_user/, 'invites project-specific questions');
   assert.match(b, /The blueprint and test cases/);
   assert.match(b, /Jira \/ Xray/);
   assert.match(b, /devDebug/);

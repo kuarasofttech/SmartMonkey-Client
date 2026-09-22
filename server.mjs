@@ -8,6 +8,7 @@ import { createReadStream, existsSync, statSync, readFileSync, writeFileSync, mk
 import { join, resolve, extname, dirname, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawn } from 'node:child_process';
+import { randomBytes } from 'node:crypto';
 import { makeWebAsk, answerAsk, makeWebConnections, setConnection, startConnections } from './webask.mjs';
 import { makePopTerminalRunCli } from './terminal.mjs';
 import { makeHeadlessRunCli } from './headless.mjs';
@@ -53,14 +54,20 @@ function defaultRunCli(opts) {
 }
 
 export function createApp({ cwd = process.cwd(), secrets = makeSecrets(), modelFactory,
-  detectDrivers = defaultDetectDrivers, runCli = defaultRunCli, openBrowser = () => {} } = {}) {
+  detectDrivers = defaultDetectDrivers, runCli = defaultRunCli, openBrowser = () => {}, askPollMs = 25_000 } = {}) {
   const KIT = join(resolve(cwd), 'smartmonkey');
   const INTERVIEW = join(KIT, 'interview.json');
   let port = null;   // set by listen(); used to bring the browser back after a terminal-window run
   const loadAnswers = () => { try { return JSON.parse(readFileSync(INTERVIEW, 'utf8')); } catch { return null; } };
   const saveAnswers = a => { try { mkdirSync(KIT, { recursive: true }); writeFileSync(INTERVIEW, JSON.stringify(a, null, 2)); } catch {} };
+  // Mid-run questions from a headless CLI arrive over HTTP from ask-mcp.mjs. The token
+  // (per app instance) keeps anything else on the machine from injecting questions.
+  const askToken = randomBytes(24).toString('hex');
+  const agentAsks = new Map();   // id → { answer: undefined | string, waiters: [] }
+  let agentAskN = 0, askChain = Promise.resolve();   // one question on screen at a time
+  const releaseAgentAsks = () => { for (const e of agentAsks.values()) if (e.answer === undefined) { e.answer = ''; e.waiters.splice(0).forEach(w => w()); } };
   const make = modelFactory || ((provider, model, key) => embed.PROVIDERS[provider].make(key, model));
-  const session = { status: 'idle', running: false, error: null, events: [], clients: new Set(), pendingAsk: null, pendingConnections: null, cliCancel: null, stopRequested: false, ai: { provider: null, model: null }, key: null, mode: 'embedded', driver: null };
+  const session = { status: 'idle', running: false, error: null, events: [], clients: new Set(), pendingAsk: null, pendingConnections: null, cliCancel: null, gen: 0, webask: null, ai: { provider: null, model: null }, key: null, mode: 'embedded', driver: null };
 
   const emit = (type, data) => { const ev = { type, data }; session.events.push(ev); for (const r of session.clients) writeSse(r, ev); };
   const isDriverReady = () => session.driver && detectDrivers().some(d => d.id === session.driver);
@@ -76,29 +83,34 @@ export function createApp({ cwd = process.cwd(), secrets = makeSecrets(), modelF
   const finish = () => emit('done', { blueprint: existsSync(join(KIT, 'blueprint.json')) });
   const fail = e => { session.running = false; session.status = 'error'; session.error = e.message; emit('error', { message: e.message }); };
 
-  function launchEmbedded(prompt) {
-    const webask = makeWebAsk(session, emit);
+  function launchEmbedded(prompt, gen) {
+    const live = () => gen === session.gen;
+    const stopped = () => { const e = new Error('stopped'); e.stopped = true; return e; };
     const webconn = makeWebConnections(session, emit);
-    const base = embed.makeToolRunner(cwd, webask, webconn);
-    const runTool = async (name, input) => { emit('tool', { name, summary: input?.path || input?.query || input?.args?.join(' ') || '' }); return base(name, input); };
-    const callModel = make(session.ai.provider, session.ai.model, session.key);
-    embed.runAgent({ prompt, callModel, runTool, onText: t => { if (t && t.trim()) emit('text', t); } })
-      .then(() => { session.status = 'done'; session.running = false; finish(); })
-      .catch(fail);
+    const base = embed.makeToolRunner(cwd, session.webask, webconn);
+    const runTool = async (name, input) => { if (!live()) throw stopped(); emit('tool', { name, summary: input?.path || input?.query || input?.question || input?.args?.join(' ') || '' }); return base(name, input); };
+    const model = make(session.ai.provider, session.ai.model, session.key);
+    const callModel = async (...a) => { if (!live()) throw stopped(); return model(...a); };
+    embed.runAgent({ prompt, callModel, runTool, onText: t => { if (live() && t && t.trim()) emit('text', t); } })
+      .then(() => { if (!live()) return; session.status = 'done'; session.running = false; finish(); })
+      .catch(e => { if (live()) fail(e); });
   }
 
-  function launchCli(driver, prompt) {
+  function launchCli(driver, prompt, gen) {
+    const live = () => gen === session.gen;
     emit('text', `Starting ${driver.label}…`);
     let handle = null;
     handle = runCli({
       driver, prompt, cwd,
-      onEvent: (type, data) => emit(type, data),
+      askBridge: port ? { url: `http://127.0.0.1:${port}/api/agent-ask`, token: askToken } : null,
+      onEvent: (type, data) => { if (live()) emit(type, data); },
       onDone: () => {
+        if (!live()) return;
         session.cliCancel = null; session.running = false; session.status = 'done'; finish();
         // A run in its own terminal window took the user away from the browser — bring them back to the result.
         if (handle && !handle.headless && !handle.inTerminal && port) openBrowser(`http://127.0.0.1:${port}/view.html`);
       },
-      onError: e => { session.cliCancel = null; fail(e); },
+      onError: e => { if (!live()) return; session.cliCancel = null; fail(e); },
     });
     session.cliCancel = handle && handle.cancel ? handle.cancel : null;
     if (!session.running) return;   // it already finished (or failed) synchronously
@@ -121,7 +133,7 @@ export function createApp({ cwd = process.cwd(), secrets = makeSecrets(), modelF
         keychain: { available: secrets.available() },
         blueprint: { exists: existsSync(join(KIT, 'blueprint.json')) },
         run: { status: session.status, error: session.error },
-        pendingAsk: session.pendingAsk ? { id: session.pendingAsk.id, question: session.pendingAsk.question, options: session.pendingAsk.options } : null,
+        pendingAsk: session.pendingAsk ? { id: session.pendingAsk.id, question: session.pendingAsk.question, options: session.pendingAsk.options, multi: !!session.pendingAsk.multi } : null,
         pendingConnections: session.pendingConnections ? { id: session.pendingConnections.id, services: session.pendingConnections.services, status: session.pendingConnections.status } : null,
       });
     }
@@ -147,6 +159,29 @@ export function createApp({ cwd = process.cwd(), secrets = makeSecrets(), modelF
       return sendJson(res, { ok: true, ready: ready(), keychain: { available: secrets.available() } });
     }
 
+    if (path === '/api/agent-ask' && method === 'POST') {
+      if (req.headers['x-smartmonkey-token'] !== askToken) return sendJson(res, { error: 'forbidden' }, 403);
+      if (!session.running || !session.webask) return sendJson(res, { error: 'no build is running' }, 409);
+      const body = await readBody(req);
+      const id = 'aa_' + (++agentAskN);
+      const entry = { answer: undefined, waiters: [] };
+      agentAsks.set(id, entry);
+      const gen = session.gen, ask = session.webask;
+      const options = Array.isArray(body.options) ? body.options.map(String).filter(Boolean).slice(0, 12) : [];
+      askChain = askChain
+        .then(() => (gen === session.gen && entry.answer === undefined ? ask(String(body.question || ''), options, !!body.multi) : ''))
+        .then(ans => { if (entry.answer === undefined) entry.answer = ans; entry.waiters.splice(0).forEach(w => w()); });
+      return sendJson(res, { id });
+    }
+
+    if (path.startsWith('/api/agent-ask/') && method === 'GET') {
+      if (req.headers['x-smartmonkey-token'] !== askToken) return sendJson(res, { error: 'forbidden' }, 403);
+      const entry = agentAsks.get(decodeURIComponent(path.slice('/api/agent-ask/'.length)));
+      if (!entry) return sendJson(res, { error: 'unknown question' }, 404);
+      if (entry.answer === undefined) await new Promise(r => { entry.waiters.push(r); setTimeout(r, askPollMs); });
+      return entry.answer === undefined ? sendJson(res, { pending: true }) : sendJson(res, { answer: entry.answer });
+    }
+
     if (path === '/api/interview' && method === 'GET') {
       return sendJson(res, { questions: QUESTIONS, saved: loadAnswers() });
     }
@@ -164,18 +199,22 @@ export function createApp({ cwd = process.cwd(), secrets = makeSecrets(), modelF
         if (!driver || !detectDrivers().some(x => x.id === driver.id)) return sendJson(res, { error: 'selected CLI not available — choose a logged-in CLI' }, 400);
       } else if (!ready()) return sendJson(res, { error: 'AI not ready — set a provider + key first' }, 400);
 
+      // Every run gets a generation number; Stop bumps it, so a stopped run's late results are ignored.
+      const gen = ++session.gen;
       session.running = true; session.status = 'running'; session.error = null; session.events = [];
-      session.pendingAsk = null; session.pendingConnections = null; session.stopRequested = false;
+      session.pendingAsk = null; session.pendingConnections = null;
+      session.webask = makeWebAsk(session, emit);
+      agentAsks.clear();
       if (answers) saveAnswers(answers);
 
       // Tools the answers draw on are connected (or skipped) BEFORE anything is built.
       const services = answers ? servicesFor(answers) : [];
       const gate = services.length ? makeWebConnections(session, emit)(services) : Promise.resolve(null);
       gate.then(summary => {
-        if (session.stopRequested) { session.running = false; return; }
+        if (gen !== session.gen) return;   // stopped while waiting at the connect panel
         const connections = summary && summary.replace(/^The user finished the connect step\.\s*/, '').replace(/\s*Now build the blueprint\.$/, '');
         const prompt = (answers ? answersBlock(answers, connections) : '') + PROMPT();
-        if (driver) launchCli(driver, prompt); else launchEmbedded(prompt);
+        if (driver) launchCli(driver, prompt, gen); else launchEmbedded(prompt, gen);
       });
       return sendJson(res, { ok: true }, 202);
     }
@@ -208,12 +247,13 @@ export function createApp({ cwd = process.cwd(), secrets = makeSecrets(), modelF
     }
 
     if (path === '/api/stop' && method === 'POST') {
-      if (session.pendingAsk) answerAsk(session, session.pendingAsk.id, '');   // unblock a waiting ask
+      const wasRunning = session.running;
+      session.gen++;   // the current run is now stale: whatever it reports later is ignored
+      if (session.pendingAsk) answerAsk(session, session.pendingAsk.id, '');   // unblock a waiting question
       if (session.pendingConnections) { const p = session.pendingConnections; session.pendingConnections = null; p.resolve('The user stopped the run at the connect step.'); }
-      session.stopRequested = true;   // a build still waiting at the connect panel must not start
-      if (session.cliCancel) { session.cliCancel(); session.cliCancel = null; session.running = false; }   // kill a headless run / stop watching a terminal window
-      session.status = 'idle';
-      // best-effort: no mid-turn abort; `running` stays set until the live loop settles, so a new generate is refused until then
+      if (session.cliCancel) { session.cliCancel(); session.cliCancel = null; }   // kill a headless run / stop watching a terminal window
+      releaseAgentAsks();
+      if (wasRunning) { session.running = false; session.status = 'stopped'; emit('stopped', {}); }
       return sendJson(res, { ok: true });
     }
 
@@ -234,12 +274,12 @@ export function createApp({ cwd = process.cwd(), secrets = makeSecrets(), modelF
   const server = createServer((req, res) => { handle(req, res).catch(e => { try { sendJson(res, { error: e.message }, 500); } catch {} }); });
   return {
     server, session,
-    listen(port) {
+    listen(wantPort) {
       return new Promise((resolve, reject) => {
         const onError = e => { server.removeListener('listening', onListening); reject(e); };
         const onListening = () => { server.removeListener('error', onError); port = server.address().port; resolve(port); };
         server.once('error', onError);
-        server.listen(port, '127.0.0.1', onListening);
+        server.listen(wantPort, '127.0.0.1', onListening);
       });
     },
   };

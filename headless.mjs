@@ -12,16 +12,33 @@
  */
 import { spawn as _spawn } from 'node:child_process';
 import { relative, isAbsolute } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const ASK_MCP = fileURLToPath(new URL('./ask-mcp.mjs', import.meta.url));
+const ASK_TIMEOUT_MS = String(24 * 3600 * 1000);   // the owner may step away; Stop is how a run ends early
 
 const READ_ONLY_GIT = ['rev-parse', 'log', 'ls-files', 'status', 'show', 'diff', 'branch'].map(c => `Bash(git ${c}:*)`);
 export const CLAUDE_TOOLS = ['Read', 'Glob', 'Grep', 'Edit(smartmonkey/**)', ...READ_ONLY_GIT];
 
-/** The headless command for a driver, or null when we have no verified recipe for it. */
-export function headlessCommand(driver) {
-  if (driver.id === 'claude') {
-    return { args: ['-p', '--output-format', 'stream-json', '--verbose', '--permission-mode', 'dontAsk', '--allowedTools', ...CLAUDE_TOOLS] };
+/**
+ * The headless command for a driver, or null when we have no verified recipe for it.
+ * `askBridge` ({url, token}) adds our ask_user MCP tool so the build can ask
+ * project-specific questions in the app; --strict-mcp-config keeps the user's own
+ * MCP servers out of the build.
+ */
+export function headlessCommand(driver, askBridge) {
+  if (driver.id !== 'claude') return null;   // codex / cursor / gemini: not verified here → the terminal fallback
+  const args = ['-p', '--output-format', 'stream-json', '--verbose', '--permission-mode', 'dontAsk'];
+  const tools = [...CLAUDE_TOOLS];
+  const env = {};
+  if (askBridge) {
+    const cfg = { mcpServers: { smartmonkey: { command: process.execPath, args: [ASK_MCP], env: { SMARTMONKEY_ASK_URL: askBridge.url, SMARTMONKEY_ASK_TOKEN: askBridge.token } } } };
+    args.push('--mcp-config', JSON.stringify(cfg), '--strict-mcp-config');
+    tools.push('mcp__smartmonkey__ask_user');
+    env.MCP_TOOL_TIMEOUT = ASK_TIMEOUT_MS;
   }
-  return null;   // codex / cursor / gemini: not verified here → the terminal fallback
+  args.push('--allowedTools', ...tools);   // variadic — must stay last
+  return { args, env };
 }
 
 const rel = (p, cwd) => (typeof p === 'string' && isAbsolute(p) ? (relative(cwd, p) || '.') : p);
@@ -34,6 +51,7 @@ export function parseClaudeLine(line, cwd) {
     const out = [];
     for (const b of (j.message && j.message.content) || []) {
       if (b.type === 'text' && b.text && b.text.trim()) out.push({ type: 'text', data: b.text });
+      else if (b.type === 'tool_use' && b.name === 'mcp__smartmonkey__ask_user') out.push({ type: 'tool', data: { name: 'asking you', summary: (b.input && b.input.question) || '' } });
       else if (b.type === 'tool_use') out.push({ type: 'tool', data: { name: b.name, summary: summarize(b.input, cwd) } });
     }
     return out;
@@ -49,11 +67,11 @@ export function parseClaudeLine(line, cwd) {
  * driver without a recipe, before starting anything.
  */
 export function makeHeadlessRunCli({ spawn = _spawn } = {}) {
-  return ({ driver, prompt, cwd, onEvent = () => {}, onDone, onError }) => {
-    const cmd = headlessCommand(driver);
+  return ({ driver, prompt, cwd, askBridge, onEvent = () => {}, onDone, onError }) => {
+    const cmd = headlessCommand(driver, askBridge);
     if (!cmd) { const e = new Error(`no headless mode for ${driver.id}`); e.code = 'UNSUPPORTED'; throw e; }
 
-    const child = spawn(driver.bin, cmd.args, { cwd, stdio: ['pipe', 'pipe', 'pipe'] });
+    const child = spawn(driver.bin, cmd.args, { cwd, stdio: ['pipe', 'pipe', 'pipe'], env: { ...process.env, ...cmd.env } });
     let buf = '', stderr = '', result = null, settled = false;
     const settle = (fn, arg) => { if (settled) return; settled = true; fn(arg); };
 

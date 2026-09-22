@@ -113,5 +113,33 @@ await check('an unsupported driver throws UNSUPPORTED so the caller can fall bac
   assert.equal(f.calls.length, 0);
 });
 
+await check('with an ask bridge: loads ONLY our MCP server, allows ask_user, and gives the tool a long timeout', () => {
+  const c = headlessCommand({ id: 'claude', bin: 'claude' }, { url: 'http://127.0.0.1:9/api/agent-ask', token: 'tok' });
+  const cfg = JSON.parse(c.args[c.args.indexOf('--mcp-config') + 1]);
+  const srv = cfg.mcpServers.smartmonkey;
+  assert.equal(srv.command, process.execPath);
+  assert.match(srv.args[0], /ask-mcp\.mjs$/);
+  assert.deepEqual(srv.env, { SMARTMONKEY_ASK_URL: 'http://127.0.0.1:9/api/agent-ask', SMARTMONKEY_ASK_TOKEN: 'tok' });
+  assert.ok(c.args.includes('--strict-mcp-config'), "the user's own MCP servers stay out of the build");
+  assert.ok(c.args.includes('mcp__smartmonkey__ask_user'));
+  assert.equal(c.args.indexOf('--mcp-config') < c.args.indexOf('--allowedTools'), true, 'variadic --allowedTools stays last');
+  assert.ok(Number(c.env.MCP_TOOL_TIMEOUT) >= 3600000, 'an answer can take a while');
+});
+
+await check('without a bridge: no MCP flags at all', () => {
+  const c = headlessCommand({ id: 'claude', bin: 'claude' });
+  assert.ok(!c.args.includes('--mcp-config') && !c.args.includes('mcp__smartmonkey__ask_user'));
+});
+
+await check('the run passes the bridge through and spawns with the tool-timeout env', () => {
+  const f = fakeSpawn();
+  makeHeadlessRunCli({ spawn: f.spawn })({ driver: { id: 'claude', bin: 'claude' }, prompt: 'P', cwd: '/repo', askBridge: { url: 'u', token: 't' },
+    onEvent: () => {}, onDone: () => {}, onError: () => {} });
+  const { args, opts } = f.calls[0];
+  assert.ok(args.includes('--mcp-config'));
+  assert.ok(Number(opts.env.MCP_TOOL_TIMEOUT) >= 3600000);
+  assert.equal(opts.env.PATH, process.env.PATH, 'inherits the normal environment');
+});
+
 if (failures) { console.error(`\n${failures} failure(s)`); process.exit(1); }
 console.log('\nheadless: all passed');

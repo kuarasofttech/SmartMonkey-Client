@@ -32,5 +32,15 @@ await check('free-text ask (no options) works', async () => {
   assert.equal(await p, './gradlew assembleDebug');
 });
 
+await check('multi-choice ask: flagged on the event, and an array answer is joined', async () => {
+  const session = {}; const emitted = [];
+  const ask = makeWebAsk(session, (type, data) => emitted.push({ type, data }));
+  const p = ask('Which platforms?', ['Android', 'iOS', 'Web'], true);
+  assert.equal(emitted[0].data.multi, true);
+  assert.equal(session.pendingAsk.multi, true);
+  answerAsk(session, session.pendingAsk.id, ['Android', 'iOS']);
+  assert.equal(await p, 'Android, iOS');
+});
+
 if (failures) { console.error(`\n${failures} failure(s)`); process.exit(1); }
 console.log('\nwebask: all passed');

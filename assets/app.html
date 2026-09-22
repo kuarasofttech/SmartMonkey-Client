@@ -88,6 +88,12 @@
   .q input[type=text], .q textarea { margin-top:8px; }
   textarea { width:100%; min-height:72px; padding:10px 12px; background:var(--raised); border:1px solid var(--line); border-radius:8px; color:var(--ink); font:inherit; resize:vertical; }
   textarea:focus { outline:none; border-color:var(--brand); box-shadow:0 0 0 3px var(--brand-soft); }
+  .actions { display:flex; gap:10px; align-items:center; margin-top:12px; }
+  .ask .ask-q { font-weight:600; color:var(--ink); margin:0 0 4px; }
+  .ask .ask-note { font-size:12px; color:var(--slate); margin:0 0 6px; }
+  .ask .pill { background:var(--surface); }
+  .ask .other { margin-top:10px; }
+  .ask .ask-actions { display:flex; gap:8px; margin-top:12px; }
   #doneMsg { margin:14px 0 0; }
   a.review { display:inline-block; padding:10px 16px; border-radius:8px; background:var(--brand); color:var(--on-brand); font-weight:600; }
   a.review:hover { text-decoration:none; filter:brightness(1.05); }
@@ -149,7 +155,7 @@
   <div class="card">
     <div class="step"><span class="n">3</span><h2>Build the blueprint</h2></div>
     <p class="sub">Reads your repo with your answers, connects any tools you named, then writes <code>smartmonkey/blueprint.json</code>.</p>
-    <button id="gen" disabled>Build blueprint</button>
+    <div class="actions"><button id="gen" disabled>Build blueprint</button><button id="stop" class="ghost hide">Stop</button></div>
     <div id="asks"></div>
     <label style="margin-top:14px">Progress</label>
     <div id="log"></div>
@@ -201,7 +207,9 @@ async function refresh() {
   } else {
     $('aiStatus').textContent = s.ai.ready ? `Ready: ${s.ai.provider} · ${s.ai.model}` : 'Set a provider + key to enable Build.';
   }
-  $('gen').disabled = !s.ai.ready || s.run.status === 'running';
+  const running = s.run.status === 'running';
+  $('gen').disabled = !s.ai.ready || running;
+  $('stop').classList.toggle('hide', !running); $('stop').disabled = false;
   if (s.blueprint.exists) $('doneMsg').classList.remove('hide');
   if (s.pendingAsk) renderAsk(s.pendingAsk);
   if (s.pendingConnections) renderConnections(s.pendingConnections);
@@ -300,6 +308,8 @@ async function loadInterview() {
   else $('interview').innerHTML = '<p class="status">Could not load the questions. Restart <code>smartmonkey app</code> and reload this page.</p>';
 }
 
+$('stop').onclick = async () => { $('stop').disabled = true; await api('POST', '/api/stop'); refresh(); };
+
 $('gen').onclick = async () => {
   $('log').textContent = ''; $('asks').innerHTML = ''; $('doneMsg').classList.add('hide');
   const r = await api('POST', '/api/generate', { answers: collectAnswers() });
@@ -307,28 +317,49 @@ $('gen').onclick = async () => {
   refresh();
 };
 
+// A question from the build, mid-run: clickable choices (one or several), or your own words.
 function renderAsk(a) {
   if (document.getElementById('ask-' + a.id)) return;
-  const box = document.createElement('div'); box.className = 'ask'; box.id = 'ask-' + a.id;
-  const q = document.createElement('div'); q.textContent = a.question; box.appendChild(q);
-  let getVal;
-  if (a.options && a.options.length) {
-    const opts = document.createElement('div'); opts.className = 'opts';
-    a.options.forEach((o, i) => {
-      const l = document.createElement('label');
-      const r = document.createElement('input'); r.type = 'radio'; r.name = a.id; r.value = o; if (i === 0) r.checked = true;
-      l.appendChild(r); l.appendChild(document.createTextNode(o)); opts.appendChild(l);
+  const box = el('div', 'ask'); box.id = 'ask-' + a.id;
+  box.appendChild(el('p', 'ask-q', a.question));
+  const opts = a.options || [];
+  let group = null;
+  if (opts.length) {
+    if (a.multi) box.appendChild(el('p', 'ask-note', 'Pick all that apply.'));
+    group = el('div', 'pills');
+    opts.forEach(o => {
+      const pill = el('label', 'pill');
+      const inp = el('input'); inp.type = a.multi ? 'checkbox' : 'radio'; inp.name = 'ask-' + a.id; inp.value = o;
+      pill.appendChild(inp); pill.appendChild(document.createTextNode(o)); group.appendChild(pill);
     });
-    box.appendChild(opts);
-    getVal = () => (box.querySelector('input:checked') || {}).value || a.options[0];
-  } else {
-    const inp = document.createElement('input'); inp.placeholder = 'Your answer'; box.appendChild(inp);
-    getVal = () => inp.value;
+    box.appendChild(group);
   }
-  const btn = document.createElement('button'); btn.textContent = 'Answer';
-  btn.onclick = async () => { btn.disabled = true; await api('POST', '/api/answer', { id: a.id, answer: getVal() }); box.remove(); };
-  box.appendChild(document.createElement('br')); box.appendChild(btn);
+  const other = el('input', 'other'); other.type = 'text'; other.placeholder = opts.length ? 'Or type your own answer' : 'Your answer';
+  box.appendChild(other);
+  const acts = el('div', 'ask-actions');
+  const send = el('button', null, 'Answer');
+  const skip = el('button', 'ghost', 'Skip');
+  const submit = async answer => {
+    send.disabled = skip.disabled = true;
+    await api('POST', '/api/answer', { id: a.id, answer });
+    box.remove(); logLine(`· you answered: ${Array.isArray(answer) ? answer.join(', ') : (answer || '(skipped)')}`); flagQuestion();
+  };
+  send.onclick = () => {
+    const typed = other.value.trim();
+    const picked = group ? [...group.querySelectorAll('input:checked')].map(i => i.value) : [];
+    submit(typed || (a.multi ? picked : picked[0] || ''));
+  };
+  skip.onclick = () => submit('');
+  other.onkeydown = e => { if (e.key === 'Enter') send.onclick(); };
+  acts.appendChild(send); acts.appendChild(skip); box.appendChild(acts);
   $('asks').appendChild(box);
+  box.scrollIntoView({ block: 'center', behavior: 'smooth' });
+  flagQuestion();
+}
+// Put a marker in the tab title while a question waits, so it's noticed from another tab.
+function flagQuestion() {
+  const waiting = !!document.querySelector('#asks .ask:not(.conns)');
+  document.title = (waiting ? '(1) Question · ' : '') + 'SmartMonkey';
 }
 
 function renderConnections(c) {
@@ -385,6 +416,7 @@ es.addEventListener('tool', e => { const d = JSON.parse(e.data); logLine(`· ${d
 es.addEventListener('ask', e => renderAsk(JSON.parse(e.data)));
 es.addEventListener('connections', e => renderConnections(JSON.parse(e.data)));
 es.addEventListener('done', e => { logLine('\n✓ Done.'); refresh(); });
+es.addEventListener('stopped', () => { $('asks').innerHTML = ''; flagQuestion(); logLine('\n■ Stopped. Nothing more was built; you can change your answers and build again.'); refresh(); });
 es.addEventListener('error', e => { try { logLine('\n✗ ' + JSON.parse(e.data).message); } catch {} });
 
 loadInterview();

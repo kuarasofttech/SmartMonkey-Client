@@ -7,11 +7,12 @@
  */
 export function makeWebAsk(session, emit) {
   let n = 0;
-  return (question, options) => new Promise((resolve) => {
+  return (question, options, multi) => new Promise((resolve) => {
     const opts = Array.isArray(options) && options.length ? options : undefined;
     const id = 'ask_' + (++n);
-    session.pendingAsk = { id, question: question || '', options: opts, resolve };
-    emit('ask', { id, question: question || '', options: opts });
+    const m = !!(multi && opts);
+    session.pendingAsk = { id, question: question || '', options: opts, multi: m, resolve };
+    emit('ask', { id, question: question || '', options: opts, multi: m });
   });
 }
 
@@ -19,7 +20,7 @@ export function answerAsk(session, id, answer) {
   const p = session.pendingAsk;
   if (!p || p.id !== id) return false;
   session.pendingAsk = null;
-  p.resolve(typeof answer === 'string' ? answer : String(answer ?? ''));
+  p.resolve(Array.isArray(answer) ? answer.map(String).join(', ') : typeof answer === 'string' ? answer : String(answer ?? ''));
   return true;
 }
 
