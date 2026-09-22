@@ -23,6 +23,7 @@ export const TOOLS = [
   { name: 'search', description: 'Search the repo for a substring/regex; returns matching path:line: text.', input_schema: { type: 'object', properties: { query: { type: 'string' }, path: { type: 'string' } }, required: ['query'] } },
   { name: 'git', description: 'Run a READ-ONLY git command (rev-parse, log, diff, ls-files, show, status, branch).', input_schema: { type: 'object', properties: { args: { type: 'array', items: { type: 'string' } } }, required: ['args'] } },
   { name: 'ask_user', description: 'Ask the project owner a question and get their answer. Provide options for a menu when the answer is a choice.', input_schema: { type: 'object', properties: { question: { type: 'string' }, options: { type: 'array', items: { type: 'string' } } }, required: ['question'] } },
+  { name: 'request_connections', description: 'AFTER the interview, if the blueprint will draw on external tools (Jira, Figma, Confluence, TestRail, …), call this ONCE with those tool names. It pauses so the user can connect or skip each in the app, then returns — only then continue and build the blueprint. Do not call it if no external tools are involved.', input_schema: { type: 'object', properties: { services: { type: 'array', items: { type: 'string' } } }, required: ['services'] } },
   { name: 'write_file', description: 'Write an output file. Only paths under smartmonkey/ are allowed (blueprint.json, cases.json).', input_schema: { type: 'object', properties: { path: { type: 'string' }, contents: { type: 'string' } }, required: ['path', 'contents'] } },
 ];
 
@@ -30,7 +31,7 @@ const IGNORE = /(^|\/)(\.git|node_modules|build|dist|\.gradle|\.idea|DerivedData
 const GIT_OK = new Set(['rev-parse', 'log', 'diff', 'ls-files', 'ls-tree', 'show', 'status', 'branch', 'remote', 'config']);
 
 /** Build the tool executor bound to a repo root. `ask` handles interview I/O. */
-export function makeToolRunner(cwd, ask) {
+export function makeToolRunner(cwd, ask, requestConnections = async () => 'No connect step in this context; proceed to build the blueprint.') {
   const root = resolve(cwd);
   const inside = p => { const abs = resolve(root, p); if (abs !== root && !abs.startsWith(root + '/')) throw new Error('path escapes the repo'); return abs; };
   const walk = (dir, out, cap) => {
@@ -78,6 +79,7 @@ export function makeToolRunner(cwd, ask) {
       return r.stdout.slice(0, 50_000);
     }
     if (name === 'ask_user') return ask(input.question || '', input.options);
+    if (name === 'request_connections') return requestConnections(input.services || []);
     if (name === 'write_file') {
       const rel = (input.path || '').replace(/\\/g, '/');
       if (!/^smartmonkey\/[\w.-]+\.json$/.test(rel)) throw new Error('only smartmonkey/*.json may be written');

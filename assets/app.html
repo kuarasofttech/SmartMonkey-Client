@@ -23,6 +23,15 @@
   .ask { border:1px solid var(--primary); border-radius:8px; padding:12px; margin:10px 0; }
   .ask .opts label { display:flex; align-items:center; gap:8px; color:var(--text); margin:6px 0; }
   .ask .opts input { width:auto; }
+  .conn-row { display:flex; align-items:center; gap:10px; margin:8px 0; }
+  .conn-name { flex:1; color:var(--text); font-weight:600; }
+  .conn-btn { padding:5px 12px; font-size:13px; font-weight:600; }
+  .conn-btn.conn-skip { background:transparent; color:var(--text); border:1px solid var(--primary); }
+  .conn-badge { font-size:13px; padding:4px 10px; border-radius:6px; }
+  .conn-badge.connected { color:#0a7d33; }
+  .conn-badge.skipped { color:var(--muted, #888); }
+  #conns-start { margin-top:10px; }
+  #conns-start:disabled { opacity:.5; cursor:not-allowed; }
   a { color: var(--primary); }
   .hide { display:none; }
   .modeToggle { display:flex; gap:16px; margin:10px 0 4px; font-size:13px; color:var(--text); }
@@ -132,6 +141,7 @@ async function refresh() {
   $('gen').disabled = !s.ai.ready || s.run.status === 'running';
   if (s.blueprint.exists) $('doneMsg').classList.remove('hide');
   if (s.pendingAsk) renderAsk(s.pendingAsk);
+  if (s.pendingConnections) renderConnections(s.pendingConnections);
 }
 
 $('saveKey').onclick = async () => {
@@ -195,10 +205,59 @@ function renderAsk(a) {
   $('asks').appendChild(box);
 }
 
+function renderConnections(c) {
+  const existing = document.getElementById('conns');
+  if (existing && existing.dataset.id === c.id) { updateConnections(c); return; }
+  if (existing) existing.remove();
+  const box = document.createElement('div'); box.className = 'ask conns'; box.id = 'conns'; box.dataset.id = c.id;
+  const h = document.createElement('div');
+  h.innerHTML = '<b>Connect your tools</b><div class="status">The blueprint draws on these. Connect or skip each, then start.</div>';
+  box.appendChild(h);
+  const list = document.createElement('div'); list.id = 'conns-list'; box.appendChild(list);
+  const start = document.createElement('button'); start.textContent = 'Start blueprinting'; start.id = 'conns-start';
+  start.onclick = async () => {
+    start.disabled = true;
+    const r = await api('POST', '/api/connections/start', { id: c.id });
+    if (r && r.error) { start.disabled = false; return; }
+    box.remove(); logLine('\n▶ Building the blueprint…');
+  };
+  box.appendChild(start);
+  $('asks').appendChild(box);
+  updateConnections(c);
+}
+function updateConnections(c) {
+  const list = document.getElementById('conns-list'); if (!list) return;
+  list.innerHTML = '';
+  for (const svc of c.services) {
+    const st = c.status[svc] || 'pending';
+    const row = document.createElement('div'); row.className = 'conn-row';
+    const name = document.createElement('span'); name.className = 'conn-name'; name.textContent = svc; row.appendChild(name);
+    if (st === 'pending') {
+      const conn = document.createElement('button'); conn.className = 'conn-btn'; conn.textContent = 'Connect';
+      conn.onclick = () => setConn(c.id, svc, 'connect');
+      const skip = document.createElement('button'); skip.className = 'conn-btn conn-skip'; skip.textContent = 'Skip';
+      skip.onclick = () => setConn(c.id, svc, 'skip');
+      row.appendChild(conn); row.appendChild(skip);
+    } else {
+      const badge = document.createElement('span'); badge.className = 'conn-badge ' + st;
+      badge.textContent = st === 'connected' ? 'Connected ✓' : 'Skipped';
+      row.appendChild(badge);
+    }
+    list.appendChild(row);
+  }
+  const done = c.services.every(s => c.status[s] === 'connected' || c.status[s] === 'skipped');
+  const start = document.getElementById('conns-start'); if (start) start.disabled = !done;
+}
+async function setConn(id, service, action) {
+  const r = await api('POST', '/api/connect', { id, service, action });
+  if (r && r.status) updateConnections({ id, services: Object.keys(r.status), status: r.status });
+}
+
 const es = new EventSource('/api/events');
 es.addEventListener('text', e => logLine(JSON.parse(e.data)));
 es.addEventListener('tool', e => { const d = JSON.parse(e.data); logLine(`· ${d.name} ${d.summary || ''}`); });
 es.addEventListener('ask', e => renderAsk(JSON.parse(e.data)));
+es.addEventListener('connections', e => renderConnections(JSON.parse(e.data)));
 es.addEventListener('done', e => { logLine('\n✓ Done.'); refresh(); });
 es.addEventListener('error', e => { try { logLine('\n✗ ' + JSON.parse(e.data).message); } catch {} });
 

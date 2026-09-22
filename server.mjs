@@ -8,7 +8,7 @@ import { createReadStream, existsSync, statSync, readFileSync } from 'node:fs';
 import { join, resolve, extname, dirname, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawn } from 'node:child_process';
-import { makeWebAsk, answerAsk } from './webask.mjs';
+import { makeWebAsk, answerAsk, makeWebConnections, setConnection, startConnections } from './webask.mjs';
 import { makeSecrets } from './secrets.mjs';
 import * as embed from './embed.mjs';
 import { DRIVERS, detectDrivers as defaultDetectDrivers } from './drivers.mjs';
@@ -33,7 +33,7 @@ export function createApp({ cwd = process.cwd(), secrets = makeSecrets(), modelF
   detectDrivers = defaultDetectDrivers, runCli = defaultRunCli } = {}) {
   const KIT = join(resolve(cwd), 'smartmonkey');
   const make = modelFactory || ((provider, model, key) => embed.PROVIDERS[provider].make(key, model));
-  const session = { status: 'idle', running: false, error: null, events: [], clients: new Set(), pendingAsk: null, ai: { provider: null, model: null }, key: null, mode: 'embedded', driver: null };
+  const session = { status: 'idle', running: false, error: null, events: [], clients: new Set(), pendingAsk: null, pendingConnections: null, ai: { provider: null, model: null }, key: null, mode: 'embedded', driver: null };
 
   const emit = (type, data) => { const ev = { type, data }; session.events.push(ev); for (const r of session.clients) writeSse(r, ev); };
   const isDriverReady = () => session.driver && detectDrivers().some(d => d.id === session.driver);
@@ -61,6 +61,7 @@ export function createApp({ cwd = process.cwd(), secrets = makeSecrets(), modelF
         blueprint: { exists: existsSync(join(KIT, 'blueprint.json')) },
         run: { status: session.status, error: session.error },
         pendingAsk: session.pendingAsk ? { id: session.pendingAsk.id, question: session.pendingAsk.question, options: session.pendingAsk.options } : null,
+        pendingConnections: session.pendingConnections ? { id: session.pendingConnections.id, services: session.pendingConnections.services, status: session.pendingConnections.status } : null,
       });
     }
 
@@ -103,9 +104,10 @@ export function createApp({ cwd = process.cwd(), secrets = makeSecrets(), modelF
 
       if (!ready()) return sendJson(res, { error: 'AI not ready — set a provider + key first' }, 400);
 
-      session.status = 'running'; session.running = true; session.error = null; session.events = []; session.pendingAsk = null;
+      session.status = 'running'; session.running = true; session.error = null; session.events = []; session.pendingAsk = null; session.pendingConnections = null;
       const webask = makeWebAsk(session, emit);
-      const base = embed.makeToolRunner(cwd, webask);
+      const webconn = makeWebConnections(session, emit);
+      const base = embed.makeToolRunner(cwd, webask, webconn);
       const runTool = async (name, input) => { emit('tool', { name, summary: input?.path || input?.query || input?.args?.join(' ') || '' }); return base(name, input); };
       const callModel = make(session.ai.provider, session.ai.model, session.key);
       embed.runAgent({ prompt: PROMPT(), callModel, runTool, onText: t => { if (t && t.trim()) emit('text', t); } })
@@ -127,8 +129,23 @@ export function createApp({ cwd = process.cwd(), secrets = makeSecrets(), modelF
       return answerAsk(session, body.id, body.answer) ? sendJson(res, { ok: true }) : sendJson(res, { error: 'no matching pending question' }, 409);
     }
 
+    if (path === '/api/connect' && method === 'POST') {
+      const body = await readBody(req);   // { id, service, action: 'connect' | 'skip' }
+      if (!setConnection(session, body.id, body.service, body.action)) return sendJson(res, { error: 'no matching pending connection' }, 409);
+      return sendJson(res, { ok: true, status: session.pendingConnections?.status || null });
+    }
+
+    if (path === '/api/connections/start' && method === 'POST') {
+      const body = await readBody(req);   // { id }
+      if (startConnections(session, body.id)) return sendJson(res, { ok: true });
+      const pc = session.pendingConnections;
+      const pending = pc && pc.id === body.id ? Object.keys(pc.status).filter(k => pc.status[k] === 'pending') : null;
+      return sendJson(res, { error: pending && pending.length ? 'connect or skip every tool first' : 'no matching pending connection', pending }, 409);
+    }
+
     if (path === '/api/stop' && method === 'POST') {
       if (session.pendingAsk) answerAsk(session, session.pendingAsk.id, '');   // unblock a waiting ask
+      if (session.pendingConnections) { const p = session.pendingConnections; session.pendingConnections = null; p.resolve('The user stopped the run at the connect step.'); }
       session.status = 'idle';
       // best-effort: no mid-turn abort; `running` stays set until the live loop settles, so a new generate is refused until then
       return sendJson(res, { ok: true });

@@ -167,5 +167,59 @@ await check('CLI mode generate with no AI configured at all (no provider, no dri
   app.server.close();
 });
 
+await check('connect gate: request_connections pauses; start is refused until each tool is resolved; then the blueprint is written', async () => {
+  const cwd = mkdtempSync(join(tmpdir(), 'sm-app-'));
+  let turn = 0;
+  const mockModel = async () => {
+    turn++;
+    if (turn === 1) return { content: [{ type: 'tool_use', id: 'c1', name: 'request_connections', input: { services: ['Jira', 'Figma'] } }], stop_reason: 'tool_use' };
+    if (turn === 2) return { content: [{ type: 'tool_use', id: 'w1', name: 'write_file', input: { path: 'smartmonkey/blueprint.json', contents: JSON.stringify({ smartmonkeyBlueprint: 1 }) } }], stop_reason: 'tool_use' };
+    return { content: [{ type: 'text', text: 'done' }], stop_reason: 'end_turn' };
+  };
+  const app = createApp({ cwd, secrets: makeSecrets({ platform: 'win32' }), modelFactory: () => mockModel });
+  const port = await app.listen(0);
+
+  let conn = null, sawDone = false;
+  const es = http.request({ host: '127.0.0.1', port, path: '/api/events', method: 'GET' }, res => {
+    let buf = '';
+    res.on('data', chunk => {
+      buf += chunk; let i;
+      while ((i = buf.indexOf('\n\n')) >= 0) {
+        const raw = buf.slice(0, i); buf = buf.slice(i + 2);
+        const type = (raw.match(/event: (.*)/) || [])[1];
+        const data = JSON.parse((raw.match(/data: (.*)/) || [])[1] || 'null');
+        if (type === 'connections') conn = data;
+        if (type === 'done') sawDone = true;
+      }
+    });
+  });
+  es.end();
+
+  assert.equal((await req(port, 'POST', '/api/ai', { provider: 'anthropic', model: 'claude-sonnet-5', key: 'sk-ant-x' })).status, 200);
+  assert.equal((await req(port, 'POST', '/api/generate')).status, 202);
+
+  for (let i = 0; i < 100 && !conn; i++) await new Promise(r => setTimeout(r, 20));
+  assert.ok(conn && conn.services.length === 2, 'a connections event streamed with two tools');
+  assert.deepEqual(conn.services, ['Jira', 'Figma']);
+
+  // status exposes the pending connection for a reloaded page
+  const mid = await req(port, 'GET', '/api/status');
+  assert.ok(mid.json.pendingConnections && mid.json.pendingConnections.id === conn.id, 'status carries pendingConnections');
+
+  // start is refused while anything is still pending
+  assert.equal((await req(port, 'POST', '/api/connections/start', { id: conn.id })).status, 409, 'refused with both pending');
+  assert.equal((await req(port, 'POST', '/api/connect', { id: conn.id, service: 'Jira', action: 'connect' })).status, 200);
+  assert.equal((await req(port, 'POST', '/api/connections/start', { id: conn.id })).status, 409, 'refused with Figma pending');
+  assert.equal((await req(port, 'POST', '/api/connect', { id: conn.id, service: 'Figma', action: 'skip' })).status, 200);
+
+  // now it proceeds and the agent finishes
+  assert.equal((await req(port, 'POST', '/api/connections/start', { id: conn.id })).status, 200);
+  for (let i = 0; i < 100 && !sawDone; i++) await new Promise(r => setTimeout(r, 20));
+  assert.ok(sawDone, 'done arrived after the connect step');
+  assert.ok(existsSync(join(cwd, 'smartmonkey', 'blueprint.json')), 'blueprint.json written only after Start');
+
+  es.destroy(); app.server.close();
+});
+
 if (failures) { console.error(`\n${failures} failure(s)`); process.exit(1); }
 console.log('\nserver: all passed');

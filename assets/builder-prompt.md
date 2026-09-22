@@ -86,6 +86,12 @@ When I've answered, confirm my choices back in one line, then begin. These are t
 questions you ask me up front; anything else you discover from the repo, and genuine unknowns
 go in `openQuestions[]` **without** waiting (I answer those later in SmartMonkey).
 
+**Connect step (app only).** If — and only if — my answers mean the blueprint will draw on
+external tools (Jira / Xray, TestRail, Zephyr, qTest, Confluence, Figma, …) *and* you have a
+`request_connections` tool, call it **once, right after the interview**, with those tool names,
+then wait for it to return before you continue. It lets me connect or skip each in the app. If
+no external tools are involved, or you have no such tool, skip this and go straight on.
+
 ## How to work
 
 1. **Read before you write.** Start with any `docs/`, `README`, `CONTRIBUTING`, QA or
