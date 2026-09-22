@@ -153,30 +153,38 @@ function cmdCheck() {
 async function cmdApp() {
   ensureScaffold();                       // so view.html/blueprint.json render for review
   const { createApp } = await import('./server.mjs');
-  const { ensureSingleInstance, writeLock, removeLock } = await import('./lock.mjs');
+  const { ensureSingleInstance, writeLock, removeLock, probeApp } = await import('./lock.mjs');
+  const { chooseListen } = await import('./serve-port.mjs');
+  const explicit = opt('port') !== undefined;   // did the user name a port, or is 8899 the default?
   const wantPort = Number(opt('port')) || 8899;
 
   // Exactly one app per user: replace any instance already running (see lock.mjs).
   await ensureSingleInstance({ log: msg => console.log(msg) });
 
+  // Pick a port without ever dead-ending on a busy one (see serve-port.mjs).
   const app = createApp({ cwd: process.cwd() });
-  let port;
-  for (let i = 0; ; i++) {
-    try { port = await app.listen(wantPort); break; }
-    catch (e) {
-      // The port we just freed may still be in TIME_WAIT for a moment after a replace.
-      if (e.code === 'EADDRINUSE' && i < 4) { await new Promise(r => setTimeout(r, 200)); continue; }
-      if (e.code === 'EADDRINUSE') { console.error(`Port ${wantPort} is in use by another program — pick another with --port N.`); process.exit(2); }
-      throw e;
-    }
+  const tryListen = async p => { try { await app.listen(p); return true; } catch (e) { if (e.code === 'EADDRINUSE') return false; throw e; } };
+  const outcome = await chooseListen({ tryListen, probe: probeApp, wantPort, explicit });
+
+  if (outcome.action === 'error') {
+    console.error(`Port ${wantPort} is in use by another program — pick another with --port N.`);
+    process.exit(2);
+  }
+  if (outcome.action === 'openExisting') {
+    const url = `http://127.0.0.1:${outcome.port}/`;
+    console.log(`SmartMonkey is already running: ${url} — opening it. (Ctrl-C is in that other terminal.)`);
+    openBrowser(url);
+    return;   // do NOT start a second server or touch the lock
   }
 
+  const port = outcome.port;
   writeLock({ pid: process.pid, port, cwd: process.cwd(), startedAt: new Date().toISOString() });
   const cleanup = () => removeLock();
   process.on('exit', cleanup);
   for (const sig of ['SIGINT', 'SIGTERM']) process.on(sig, () => { cleanup(); process.exit(0); });
 
   const url = `http://127.0.0.1:${port}/`;
+  if (port !== wantPort) console.log(`Port ${wantPort} was busy — using ${port} instead.`);
   console.log(`SmartMonkey app: ${url}  (Ctrl-C to stop)`);
   openBrowser(url);
 }

@@ -40,7 +40,8 @@ const defaultKill = (pid, sig) => { try { process.kill(pid, sig); } catch {} };
 const defaultSleep = ms => new Promise(r => setTimeout(r, ms));
 
 // Is OUR app answering on this port? Confirmed via /api/status carrying APP_ID.
-async function defaultProbe(port) {
+// Exported so the launcher can ask "who holds this port?" with the same check.
+export async function probeApp(port) {
   if (!port) return false;
   try {
     const res = await fetch(`http://127.0.0.1:${port}/api/status`, { signal: AbortSignal.timeout(600) });
@@ -49,6 +50,7 @@ async function defaultProbe(port) {
     return !!j && j.app === APP_ID;
   } catch { return false; }
 }
+const defaultProbe = probeApp;
 
 /**
  * Ensure no other smartmonkey app is running. If the lock names a live process
