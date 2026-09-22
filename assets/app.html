@@ -4,48 +4,87 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>SmartMonkey</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600&family=Public+Sans:wght@400;500;600;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
 <style>
-  :root { --bg:#0f1115; --card:#171a21; --border:#2a2f3a; --text:#e6e8ec; --muted:#9aa3b2; --primary:#3ddc97; --primary-ink:#06281c; }
-  * { box-sizing: border-box; }
-  body { margin:0; background:var(--bg); color:var(--text); font:15px/1.5 system-ui,-apple-system,Segoe UI,Roboto,sans-serif; }
-  .wrap { max-width: 760px; margin: 0 auto; padding: 24px 16px; }
-  h1 { font-size: 20px; margin: 0 0 4px; }
-  .sub { color: var(--muted); margin: 0 0 20px; }
-  .card { background:var(--card); border:1px solid var(--border); border-radius:12px; padding:16px; margin-bottom:16px; }
-  label { display:block; font-size:13px; color:var(--muted); margin:10px 0 4px; }
-  select, input { width:100%; padding:9px 10px; background:#0d0f14; border:1px solid var(--border); border-radius:8px; color:var(--text); }
-  button { padding:9px 14px; border:0; border-radius:8px; background:var(--primary); color:var(--primary-ink); font-weight:600; cursor:pointer; }
-  button[disabled] { opacity:.5; cursor:not-allowed; }
-  .row { display:flex; gap:10px; align-items:flex-end; }
+  :root {
+    --sans:'Public Sans',system-ui,-apple-system,Segoe UI,Roboto,sans-serif;
+    --serif:'Fraunces',Georgia,serif; --mono:'Space Mono',ui-monospace,Menlo,monospace;
+    --paper:#F4F2EC; --surface:#FBFAF6; --raised:#FFFFFF;
+    --ink:#17192B; --slate:#565B70; --faint:#8E93A6;
+    --line:#E4E0D6; --line-2:#EFEBE2;
+    --brand:#0E9F6E; --brand-hi:#12B981; --brand-soft:#E3F4EC; --on-brand:#FFFFFF;
+    --flag:#D98A1F; --ok:#1F7A54; --bad:#C2412D; --shadow:0 1px 2px rgba(23,25,43,.05);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --paper:#0E1020; --surface:#161A2E; --raised:#1B2036;
+      --ink:#ECEBF4; --slate:#A2A6BC; --faint:#767B92;
+      --line:#262B44; --line-2:#20253C;
+      --brand:#2DD4A0; --brand-hi:#52E3B7; --brand-soft:#123026; --on-brand:#04140E;
+      --flag:#F2B455; --ok:#57C79A; --bad:#F08A78; --shadow:0 1px 2px rgba(0,0,0,.3);
+    }
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--paper); color:var(--ink); font:16px/1.6 var(--sans); -webkit-font-smoothing:antialiased; }
+  .wrap { max-width:720px; margin:0 auto; padding:40px 20px 80px; }
+  .brand { font-family:var(--serif); font-weight:600; font-size:30px; letter-spacing:-.02em; margin:0; }
+  .sub { color:var(--slate); margin:6px 0 0; max-width:58ch; }
+  .privacy { display:inline-flex; align-items:center; gap:9px; margin:18px 0 28px; padding:7px 13px; border:1px solid var(--line); border-radius:999px; background:var(--surface); font-size:13px; color:var(--slate); }
+  .privacy .dot { width:8px; height:8px; border-radius:50%; background:var(--brand); box-shadow:0 0 0 3px var(--brand-soft); flex:none; }
+  .privacy b { color:var(--ink); font-weight:600; }
+  .card { background:var(--surface); border:1px solid var(--line); border-radius:12px; padding:20px 22px; margin-bottom:16px; box-shadow:var(--shadow); }
+  .step { display:flex; align-items:baseline; gap:10px; margin:0 0 14px; }
+  .step .n { font-family:var(--serif); font-weight:600; font-size:20px; color:var(--brand); line-height:1; }
+  .step h2 { font-size:16px; font-weight:700; margin:0; letter-spacing:-.01em; }
+  label { display:block; font-size:13px; font-weight:600; color:var(--slate); margin:12px 0 5px; }
+  select, input { width:100%; padding:10px 12px; background:var(--raised); border:1px solid var(--line); border-radius:8px; color:var(--ink); font:inherit; }
+  select:focus, input:focus { outline:none; border-color:var(--brand); box-shadow:0 0 0 3px var(--brand-soft); }
+  ::placeholder { color:var(--faint); }
+  button { font:inherit; font-weight:600; padding:10px 16px; border:1px solid transparent; border-radius:8px; background:var(--brand); color:var(--on-brand); cursor:pointer; transition:filter .15s,border-color .15s,color .15s; }
+  button:hover:not(:disabled) { filter:brightness(1.05); }
+  button:disabled { opacity:.45; cursor:not-allowed; }
+  button.ghost { background:transparent; color:var(--ink); border-color:var(--line); }
+  button.ghost:hover:not(:disabled) { border-color:var(--brand); color:var(--brand); filter:none; }
+  .row { display:flex; gap:12px; align-items:flex-end; }
   .row > div { flex:1; }
-  .status { font-size:12px; color:var(--muted); margin-top:8px; }
-  #log { background:#0d0f14; border:1px solid var(--border); border-radius:8px; padding:12px; height:280px; overflow:auto; white-space:pre-wrap; font:13px/1.5 ui-monospace,Menlo,monospace; }
-  .ask { border:1px solid var(--primary); border-radius:8px; padding:12px; margin:10px 0; }
-  .ask .opts label { display:flex; align-items:center; gap:8px; color:var(--text); margin:6px 0; }
-  .ask .opts input { width:auto; }
-  .conn-row { display:flex; align-items:center; gap:10px; margin:8px 0; }
-  .conn-name { flex:1; color:var(--text); font-weight:600; }
-  .conn-btn { padding:5px 12px; font-size:13px; font-weight:600; }
-  .conn-btn.conn-skip { background:transparent; color:var(--text); border:1px solid var(--primary); }
-  .conn-badge { font-size:13px; padding:4px 10px; border-radius:6px; }
-  .conn-badge.connected { color:#0a7d33; }
-  .conn-badge.skipped { color:var(--muted, #888); }
-  #conns-start { margin-top:10px; }
-  #conns-start:disabled { opacity:.5; cursor:not-allowed; }
-  a { color: var(--primary); }
+  .status { font-size:13px; color:var(--slate); margin-top:8px; }
+  code { font-family:var(--mono); font-size:.85em; background:var(--brand-soft); color:var(--ink); padding:1px 5px; border-radius:4px; }
+  a { color:var(--brand); text-decoration:none; }
+  a:hover { text-decoration:underline; }
+  .modeToggle { display:flex; gap:8px; margin:4px 0; }
+  .modeToggle label { flex:1; display:flex; align-items:center; justify-content:center; gap:8px; margin:0; padding:10px; border:1px solid var(--line); border-radius:8px; background:var(--raised); color:var(--ink); font-size:14px; font-weight:600; cursor:pointer; }
+  .modeToggle label:has(input:checked) { border-color:var(--brand); background:var(--brand-soft); color:var(--brand); }
+  .modeToggle input { width:auto; accent-color:var(--brand); }
+  #log { background:var(--raised); border:1px solid var(--line); border-radius:8px; padding:14px; height:280px; overflow:auto; white-space:pre-wrap; font:13px/1.6 var(--mono); color:var(--ink); }
+  .ask, .conns { border:1px solid var(--brand); background:var(--brand-soft); border-radius:10px; padding:16px; margin:12px 0; }
+  .ask .opts label { display:flex; align-items:center; gap:8px; color:var(--ink); font-weight:500; margin:8px 0; }
+  .ask .opts input, .ask input[type=radio] { width:auto; accent-color:var(--brand); }
+  .ask input:not([type=radio]) { margin-top:8px; }
+  .conns > div:first-child b { font-family:var(--serif); font-weight:600; font-size:16px; }
+  .conn-row { display:flex; align-items:center; gap:10px; margin:10px 0; padding-bottom:10px; border-bottom:1px solid var(--line-2); }
+  .conn-row:last-of-type { border-bottom:0; padding-bottom:0; }
+  .conn-name { flex:1; font-weight:600; }
+  .conn-btn { padding:6px 14px; font-size:13px; }
+  .conn-btn.conn-skip { background:transparent; color:var(--slate); border-color:var(--line); }
+  .conn-badge { font-size:13px; font-weight:600; padding:5px 12px; border-radius:6px; }
+  .conn-badge.connected { color:var(--ok); background:var(--brand-soft); }
+  .conn-badge.skipped { color:var(--faint); }
+  #conns-start { margin-top:12px; }
+  a.donelink { font-weight:600; }
   .hide { display:none; }
-  .modeToggle { display:flex; gap:16px; margin:10px 0 4px; font-size:13px; color:var(--text); }
-  .modeToggle label { display:flex; align-items:center; gap:6px; cursor:pointer; }
-  .modeToggle input { width:auto; }
+  @media (prefers-reduced-motion: reduce) { * { transition:none !important; } }
 </style>
 </head>
 <body>
 <div class="wrap">
-  <h1>SmartMonkey</h1>
-  <p class="sub">Blueprint your app for AI QA — locally, with your own AI. Nothing but the blueprint you approve leaves this machine.</p>
+  <h1 class="brand">SmartMonkey</h1>
+  <p class="sub">Blueprint your app for AI QA — locally, with your own AI.</p>
+  <div class="privacy"><span class="dot"></span><span><b>Stays on this machine.</b> Only the blueprint you approve is ever shared.</span></div>
 
   <div class="card">
-    <b>1 · Your AI</b>
+    <div class="step"><span class="n">1</span><h2>Your AI</h2></div>
     <div class="modeToggle">
       <label><input type="radio" name="aiMode" id="modePlatform" value="embedded" checked /> Platform (API key)</label>
       <label><input type="radio" name="aiMode" id="modeCli" value="cli" /> Logged-in CLI</label>
@@ -84,8 +123,8 @@
   </div>
 
   <div class="card">
-    <b>2 · Build the blueprint</b>
-    <p class="sub">Reads your repo, interviews you below, and writes <code>smartmonkey/blueprint.json</code>.</p>
+    <div class="step"><span class="n">2</span><h2>Build the blueprint</h2></div>
+    <p class="sub">Reads your repo, interviews you, connects the tools it needs, then writes <code>smartmonkey/blueprint.json</code>.</p>
     <button id="gen" disabled>Build blueprint</button>
     <div id="asks"></div>
     <label style="margin-top:14px">Progress</label>
