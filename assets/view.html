@@ -5,41 +5,45 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>SmartMonkey Blueprint</title>
 <meta name="description" content="A local, static viewer for a SmartMonkey QA blueprint — shows exactly what was captured and what leaves your machine.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600&family=Public+Sans:wght@400;500;600;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
 <style>
   :root {
-    --bg: #f6f7f9; --panel: #ffffff; --ink: #1a1d21; --muted: #5b6570;
-    --line: #e3e7ec; --brand: #1f7a3d; --brand-soft: #e7f4ec;
-    --warn: #b4531a; --warn-soft: #fbeee2; --danger: #b3261e; --danger-soft: #fbe9e7;
-    --ok: #1f7a3d; --ok-soft: #e7f4ec; --chip: #eef1f4; --code: #f1f3f5;
+    --sans:'Public Sans',system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+    --serif:'Fraunces',Georgia,serif; --mono:'Space Mono',ui-monospace,Menlo,monospace;
+    --bg: #F4F2EC; --panel: #FBFAF6; --raised: #FFFFFF; --ink: #17192B; --muted: #565B70;
+    --line: #E4E0D6; --brand: #0E9F6E; --brand-soft: #E3F4EC;
+    --warn: #D98A1F; --warn-soft: #F5E7CB; --danger: #C2412D; --danger-soft: #F7E4E0;
+    --ok: #1F7A54; --ok-soft: #E3F4EC; --chip: #EFEBE2; --code: #F1EFE8;
     --radius: 12px;
   }
-  :root:not([data-theme="light"]) { }
   @media (prefers-color-scheme: dark) {
     :root:not([data-theme="light"]) {
-      --bg: #0f1216; --panel: #171b20; --ink: #e7ebef; --muted: #97a1ac;
-      --line: #2a313a; --brand: #4cc471; --brand-soft: #16281c;
-      --warn: #e08a4e; --warn-soft: #2a1e12; --danger: #f0857c; --danger-soft: #2a1513;
-      --ok: #4cc471; --ok-soft: #16281c; --chip: #222933; --code: #1c2128;
+      --bg: #0E1020; --panel: #161A2E; --raised: #1B2036; --ink: #ECEBF4; --muted: #A2A6BC;
+      --line: #262B44; --brand: #2DD4A0; --brand-soft: #123026;
+      --warn: #F2B455; --warn-soft: #3A3320; --danger: #F08A78; --danger-soft: #2A1513;
+      --ok: #57C79A; --ok-soft: #123026; --chip: #20253C; --code: #1B2036;
     }
   }
   :root[data-theme="dark"] {
-    --bg: #0f1216; --panel: #171b20; --ink: #e7ebef; --muted: #97a1ac;
-    --line: #2a313a; --brand: #4cc471; --brand-soft: #16281c;
-    --warn: #e08a4e; --warn-soft: #2a1e12; --danger: #f0857c; --danger-soft: #2a1513;
-    --ok: #4cc471; --ok-soft: #16281c; --chip: #222933; --code: #1c2128;
+    --bg: #0E1020; --panel: #161A2E; --raised: #1B2036; --ink: #ECEBF4; --muted: #A2A6BC;
+    --line: #262B44; --brand: #2DD4A0; --brand-soft: #123026;
+    --warn: #F2B455; --warn-soft: #3A3320; --danger: #F08A78; --danger-soft: #2A1513;
+    --ok: #57C79A; --ok-soft: #123026; --chip: #20253C; --code: #1B2036;
   }
   * { box-sizing: border-box; }
   body {
     margin: 0; background: var(--bg); color: var(--ink);
-    font: 15px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    font: 15px/1.55 var(--sans);
     -webkit-font-smoothing: antialiased;
   }
   .wrap { max-width: 900px; margin: 0 auto; padding: 24px 16px 96px; }
   header.top { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; margin-bottom: 4px; }
-  .logo { font-weight: 700; letter-spacing: .2px; }
-  .logo b { color: var(--brand); }
+  .logo { font-family: var(--serif); font-weight: 600; font-size: 19px; letter-spacing: -.01em; }
+  .logo b { color: var(--brand); font-weight: 600; }
   .sub { color: var(--muted); font-size: 13px; }
-  h1 { font-size: 22px; margin: 14px 0 2px; }
+  h1 { font-family: var(--serif); font-weight: 600; font-size: 24px; letter-spacing: -.02em; margin: 14px 0 2px; }
   .oneliner { color: var(--muted); margin: 0 0 14px; }
   .meta { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0 20px; }
   .chip { background: var(--chip); color: var(--ink); border-radius: 999px; padding: 3px 10px; font-size: 12px; }
@@ -67,7 +71,7 @@
   .b-mute { background: var(--chip); color: var(--muted); }
   .steps { margin: 6px 0 0; padding-left: 18px; color: var(--muted); }
   .steps li { margin: 2px 0; }
-  .src { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; color: var(--muted); }
+  .src { font-family: var(--mono); font-size: 11px; color: var(--muted); }
   .kv { display: grid; grid-template-columns: 150px 1fr; gap: 4px 14px; }
   @media (max-width: 620px) { .kv { grid-template-columns: 1fr; gap: 0 0; } .kv .k { margin-top: 8px; } }
   .kv .k { color: var(--muted); }
@@ -76,7 +80,7 @@
   .findings li { margin: 6px 0; }
   details.raw { margin-top: 20px; }
   details.raw summary { cursor: pointer; color: var(--muted); }
-  pre { background: var(--code); border: 1px solid var(--line); border-radius: 10px; padding: 14px; overflow: auto; font-size: 12px; }
+  pre { background: var(--code); border: 1px solid var(--line); border-radius: 10px; padding: 14px; overflow: auto; font-size: 12px; font-family: var(--mono); }
   .drop {
     border: 2px dashed var(--line); border-radius: var(--radius); padding: 48px 20px; text-align: center;
     color: var(--muted); background: var(--panel);
@@ -94,7 +98,10 @@
   .tc-fields label { font-size: 12px; color: var(--muted); display: inline-flex; flex-direction: column; gap: 2px; }
   .tc-steps { display: flex; flex-direction: column; gap: 6px; margin-bottom: 8px; }
   .tc-step { display: flex; gap: 6px; }
-  .tc-case input, .tc-case select { padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); color: var(--ink); font: inherit; font-size: 13px; }
+  .tc-case input, .tc-case select { padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--raised); color: var(--ink); font: inherit; font-size: 13px; }
+  .tc-case input:focus, .tc-case select:focus { outline: none; border-color: var(--brand); box-shadow: 0 0 0 3px var(--brand-soft); }
+  .tc-id { width: auto; min-width: 96px; max-width: 220px; field-sizing: content; font-family: var(--mono); font-size: 12px; color: var(--muted); }
+  .tc-title { font-weight: 600; }
   .tc-do { flex: 1; } .tc-expect { flex: 1; }
   .tc-expected { width: 100%; }
   .tc-x { background: transparent; border: 1px solid var(--line); border-radius: 6px; color: var(--muted); cursor: pointer; padding: 4px 8px; }
@@ -355,7 +362,7 @@ function caseCard(c, i) {
   const stepCount = arr(c.steps).length;
   return `<div class="tc-case" data-i="${i}">
     <div class="tc-head">
-      <input class="tc-id" value="${esc(c.id || ("TC-" + (i + 1)))}" title="id" style="width:90px">
+      <input class="tc-id" value="${esc(c.id || ("TC-" + (i + 1)))}" title="Test case id">
       <input class="tc-title" placeholder="Title" value="${esc(c.title || "")}" style="flex:1">
       <button class="tc-x" data-act="del-case" title="Delete case">Delete</button>
     </div>

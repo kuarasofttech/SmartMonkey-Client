@@ -35,7 +35,13 @@ Start. Build with STUB connect buttons now (mark "connected"); real OAuth
 Touches: builder-prompt.md (flow language), server.mjs (a connect gate + a
 `request_connection`-style pause), app.html (connect screen). Needs a short spec.
 
-## ⬜ #2 — UI redesign, both surfaces, brand-aligned (AFTER #1's flow settles)
+## ✅ #2 — UI redesign, both surfaces, brand-aligned (DONE)
+Rebranded app.html + view.html to the SmartMonkey system (Public Sans / Fraunces /
+Space Mono, green #0E9F6E palette, warm paper, full light+dark). Fixed the case-ID
+truncation (was inline width:90px; now field-sizing:content). view.html source of
+truth is organiclaw (synced); app.html is client-owned.
+
+### original note
 Decision: redesign `app.html` (setup/build + new connect step) and `view.html`
 (viewer + case editor) with the **frontend-design** skill, aligned to the
 SmartMonkey brand (mascot/colors — see organiclaw `landing-smartmonkey/mascot`).
