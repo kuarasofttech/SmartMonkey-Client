@@ -15,7 +15,10 @@ gaps.
 
 ## First, a short interview
 
-Before you read any code, ASK me these questions — **one at a time, and WAIT for my answer
+**If this prompt opens with my answers from the SmartMonkey app, the interview is already
+done — do not ask any of these; use those answers and go straight on.**
+
+Otherwise, before you read any code, ASK me these questions — **one at a time, and WAIT for my answer
 before the next.** Present the options as a numbered list; I reply with a number (or my own
 words). Use my answers to steer everything below.
 

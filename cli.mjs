@@ -162,7 +162,7 @@ async function cmdApp() {
   await ensureSingleInstance({ log: msg => console.log(msg) });
 
   // Pick a port without ever dead-ending on a busy one (see serve-port.mjs).
-  const app = createApp({ cwd: process.cwd() });
+  const app = createApp({ cwd: process.cwd(), openBrowser });
   const tryListen = async p => { try { await app.listen(p); return true; } catch (e) { if (e.code === 'EADDRINUSE') return false; throw e; } };
   const outcome = await chooseListen({ tryListen, probe: probeApp, wantPort, explicit });
 

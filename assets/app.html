@@ -3,6 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="darkreader-lock"><!-- ships its own light+dark theme; stops the Dark Reader extension from recolouring it -->
 <title>SmartMonkey</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -73,6 +74,23 @@
   .conn-badge.skipped { color:var(--faint); }
   #conns-start { margin-top:12px; }
   a.donelink { font-weight:600; }
+  .q { margin:18px 0 0; }
+  .q:first-child { margin-top:4px; }
+  .q-label { font-weight:600; font-size:14px; color:var(--ink); margin:0 0 3px; }
+  .q-hint { font-size:13px; color:var(--slate); margin:0 0 8px; }
+  .pills { display:flex; flex-wrap:wrap; gap:8px; margin-top:8px; }
+  .pill { position:relative; display:inline-flex; flex-direction:column; gap:1px; margin:0; padding:8px 13px; border:1px solid var(--line); border-radius:8px; background:var(--raised); color:var(--ink); font-size:14px; font-weight:600; cursor:pointer; transition:border-color .15s, background .15s; }
+  .pill small { font-weight:400; font-size:12px; color:var(--slate); }
+  .pill input { position:absolute; opacity:0; width:1px; height:1px; pointer-events:none; }
+  .pill:hover { border-color:var(--brand); }
+  .pill:has(input:checked) { border-color:var(--brand); background:var(--brand-soft); color:var(--brand); }
+  .pill:has(input:focus-visible) { outline:2px solid var(--brand); outline-offset:2px; }
+  .q input[type=text], .q textarea { margin-top:8px; }
+  textarea { width:100%; min-height:72px; padding:10px 12px; background:var(--raised); border:1px solid var(--line); border-radius:8px; color:var(--ink); font:inherit; resize:vertical; }
+  textarea:focus { outline:none; border-color:var(--brand); box-shadow:0 0 0 3px var(--brand-soft); }
+  #doneMsg { margin:14px 0 0; }
+  a.review { display:inline-block; padding:10px 16px; border-radius:8px; background:var(--brand); color:var(--on-brand); font-weight:600; }
+  a.review:hover { text-decoration:none; filter:brightness(1.05); }
   .hide { display:none; }
   @media (prefers-reduced-motion: reduce) { * { transition:none !important; } }
 </style>
@@ -116,20 +134,26 @@
       <label>Logged-in CLI</label>
       <select id="driver"></select>
       <p class="status" id="driverNote"></p>
-      <p class="status">The interview will appear in the terminal where you started <code>smartmonkey app</code> — answer it there. The app opens the editor when it's done.</p>
+      <p class="status">You answer the questions below here in the browser; your CLI then builds the blueprint in the background, with progress on this page.</p>
     </div>
 
     <div class="status" id="aiStatus"></div>
   </div>
 
   <div class="card">
-    <div class="step"><span class="n">2</span><h2>Build the blueprint</h2></div>
-    <p class="sub">Reads your repo, interviews you, connects the tools it needs, then writes <code>smartmonkey/blueprint.json</code>.</p>
+    <div class="step"><span class="n">2</span><h2>About your app</h2></div>
+    <p class="sub">A few questions so the build knows what to look for. The defaults are fine if you're unsure.</p>
+    <div id="interview"><p class="status">Loading questions…</p></div>
+  </div>
+
+  <div class="card">
+    <div class="step"><span class="n">3</span><h2>Build the blueprint</h2></div>
+    <p class="sub">Reads your repo with your answers, connects any tools you named, then writes <code>smartmonkey/blueprint.json</code>.</p>
     <button id="gen" disabled>Build blueprint</button>
     <div id="asks"></div>
     <label style="margin-top:14px">Progress</label>
     <div id="log"></div>
-    <p id="doneMsg" class="status hide">Done — <a href="/view.html" target="_blank">review &amp; edit the blueprint →</a></p>
+    <p id="doneMsg" class="hide"><a class="review" href="/view.html" target="_blank">Review and edit the blueprint</a></p>
   </div>
 </div>
 
@@ -214,9 +238,72 @@ $('modeCli').onchange = async () => {
   refresh();
 };
 
+// ---- the interview: asked here, with real choices, before anything is built ----
+let QUESTIONS = [], ANSWERS = {};
+const asked = (q, a) => !q.when || Object.entries(q.when).every(([id, want]) => Array.isArray(want) ? want.includes(a[id]) : a[id] === want);
+const el = (tag, cls, text) => { const n = document.createElement(tag); if (cls) n.className = cls; if (text != null) n.textContent = text; return n; };
+
+function renderInterview() {
+  const box = $('interview'); box.innerHTML = '';
+  for (const q of QUESTIONS) {
+    const wrap = el('div', 'q'); wrap.dataset.id = q.id;
+    const labelId = 'q-' + q.id;
+    const lab = el('div', 'q-label', q.label); lab.id = labelId; wrap.appendChild(lab);
+    if (q.hint) wrap.appendChild(el('p', 'q-hint', q.hint));
+    if (q.type === 'text') {
+      const inp = el(q.long ? 'textarea' : 'input');
+      if (!q.long) inp.type = 'text';
+      inp.placeholder = q.placeholder || ''; inp.value = ANSWERS[q.id] || '';
+      inp.setAttribute('aria-labelledby', labelId);
+      inp.oninput = () => { ANSWERS[q.id] = inp.value; };
+      wrap.appendChild(inp);
+    } else {
+      const group = el('div', 'pills'); group.setAttribute('role', q.type === 'multi' ? 'group' : 'radiogroup'); group.setAttribute('aria-labelledby', labelId);
+      for (const o of q.options) {
+        const pill = el('label', 'pill');
+        const inp = el('input'); inp.type = q.type === 'multi' ? 'checkbox' : 'radio'; inp.name = 'q-' + q.id; inp.value = o.value;
+        inp.checked = q.type === 'multi' ? (ANSWERS[q.id] || []).includes(o.value) : ANSWERS[q.id] === o.value;
+        inp.onchange = () => {
+          ANSWERS[q.id] = q.type === 'multi' ? [...group.querySelectorAll('input:checked')].map(i => i.value) : o.value;
+          applyWhen();
+        };
+        pill.appendChild(inp); pill.appendChild(document.createTextNode(o.label));
+        if (o.hint) pill.appendChild(el('small', null, o.hint));
+        group.appendChild(pill);
+      }
+      wrap.appendChild(group);
+    }
+    box.appendChild(wrap);
+  }
+  applyWhen();
+}
+// Show or hide the follow-up questions for the answers so far (e.g. "where are your cases" only when making cases).
+function applyWhen() {
+  const visible = {};
+  for (const q of QUESTIONS) {
+    const show = asked(q, visible);
+    document.querySelector(`.q[data-id="${q.id}"]`).classList.toggle('hide', !show);
+    if (show) visible[q.id] = ANSWERS[q.id];
+  }
+}
+function collectAnswers() {
+  const out = {};
+  for (const q of QUESTIONS) if (asked(q, out)) out[q.id] = ANSWERS[q.id];
+  return out;
+}
+async function loadInterview() {
+  const r = await api('GET', '/api/interview');
+  QUESTIONS = (r && r.questions) || [];
+  const saved = (r && r.saved) || {};
+  for (const q of QUESTIONS) ANSWERS[q.id] = q.id in saved ? saved[q.id] : (q.type === 'text' ? '' : q.type === 'multi' ? [...q.default] : q.default);
+  if (QUESTIONS.length) renderInterview();
+  else $('interview').innerHTML = '<p class="status">Could not load the questions. Restart <code>smartmonkey app</code> and reload this page.</p>';
+}
+
 $('gen').onclick = async () => {
   $('log').textContent = ''; $('asks').innerHTML = ''; $('doneMsg').classList.add('hide');
-  await api('POST', '/api/generate');
+  const r = await api('POST', '/api/generate', { answers: collectAnswers() });
+  if (r && r.error) logLine('✗ ' + r.error);
   refresh();
 };
 
@@ -300,6 +387,7 @@ es.addEventListener('connections', e => renderConnections(JSON.parse(e.data)));
 es.addEventListener('done', e => { logLine('\n✓ Done.'); refresh(); });
 es.addEventListener('error', e => { try { logLine('\n✗ ' + JSON.parse(e.data).message); } catch {} });
 
+loadInterview();
 refresh();
 </script>
 </body>

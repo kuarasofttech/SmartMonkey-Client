@@ -221,5 +221,115 @@ await check('connect gate: request_connections pauses; start is refused until ea
   es.destroy(); app.server.close();
 });
 
+
+// ---- app-owned interview --------------------------------------------------------
+function sse(port) {
+  const events = [];
+  const r = http.request({ host: '127.0.0.1', port, path: '/api/events', method: 'GET' }, res => {
+    let buf = '';
+    res.on('data', chunk => {
+      buf += chunk; let i;
+      while ((i = buf.indexOf('\n\n')) >= 0) {
+        const raw = buf.slice(0, i); buf = buf.slice(i + 2);
+        events.push({ type: (raw.match(/event: (.*)/) || [])[1], data: JSON.parse((raw.match(/data: (.*)/) || [])[1] || 'null') });
+      }
+    });
+  });
+  r.end();
+  return { events, has: t => events.some(e => e.type === t), get: t => events.find(e => e.type === t), destroy: () => r.destroy() };
+}
+const waitFor = async (fn, ms = 2000) => { const end = Date.now() + ms; while (Date.now() < end) { if (fn()) return true; await new Promise(r => setTimeout(r, 20)); } return false; };
+
+await check('GET /api/interview serves the question schema and, after a run, the saved answers', async () => {
+  const cwd = mkdtempSync(join(tmpdir(), 'sm-app-'));
+  const mockModel = async () => ({ content: [{ type: 'text', text: 'ok' }], stop_reason: 'end_turn' });
+  const app = createApp({ cwd, secrets: makeSecrets({ platform: 'win32' }), modelFactory: () => mockModel });
+  const port = await app.listen(0);
+  const before = await req(port, 'GET', '/api/interview');
+  assert.ok(Array.isArray(before.json.questions) && before.json.questions.length > 5);
+  assert.equal(before.json.saved, null);
+  await req(port, 'POST', '/api/ai', { provider: 'anthropic', key: 'sk-ant-x' });
+  assert.equal((await req(port, 'POST', '/api/generate', { answers: { build: 'devDebug' } })).status, 202);
+  const after = await req(port, 'GET', '/api/interview');
+  assert.equal(after.json.saved.build, 'devDebug', 'answers persisted for a re-run');
+  assert.ok(existsSync(join(cwd, 'smartmonkey', 'interview.json')));
+  app.server.close();
+});
+
+await check('generate with answers: the model is told the interview is done and gets the answers', async () => {
+  const cwd = mkdtempSync(join(tmpdir(), 'sm-app-'));
+  let firstPrompt = null;
+  const mockModel = async messages => { if (firstPrompt === null) firstPrompt = messages[0].content; return { content: [{ type: 'text', text: 'ok' }], stop_reason: 'end_turn' }; };
+  const app = createApp({ cwd, secrets: makeSecrets({ platform: 'win32' }), modelFactory: () => mockModel });
+  const port = await app.listen(0);
+  const s = sse(port);
+  await req(port, 'POST', '/api/ai', { provider: 'anthropic', key: 'sk-ant-x' });
+  await req(port, 'POST', '/api/generate', { answers: { build: 'devDebug', coverage: 'broad' } });
+  assert.ok(await waitFor(() => s.has('done')), 'run finished');
+  assert.match(firstPrompt, /^# The interview is ALREADY DONE/);
+  assert.match(firstPrompt, /devDebug/);
+  assert.match(firstPrompt, /Go broad/);
+  assert.match(firstPrompt, /# Build the SmartMonkey QA blueprint/, 'the builder prompt follows the block');
+  s.destroy(); app.server.close();
+});
+
+await check('answers that need a tool: the connect panel comes first and the model does not run until Start', async () => {
+  const cwd = mkdtempSync(join(tmpdir(), 'sm-app-'));
+  let calls = 0, firstPrompt = null;
+  const mockModel = async messages => { calls++; if (firstPrompt === null) firstPrompt = messages[0].content; return { content: [{ type: 'text', text: 'ok' }], stop_reason: 'end_turn' }; };
+  const app = createApp({ cwd, secrets: makeSecrets({ platform: 'win32' }), modelFactory: () => mockModel });
+  const port = await app.listen(0);
+  const s = sse(port);
+  await req(port, 'POST', '/api/ai', { provider: 'anthropic', key: 'sk-ant-x' });
+  await req(port, 'POST', '/api/generate', { answers: { produce: 'blueprint+cases', casesSource: 'jira', casesAccess: 'token', docs: ['figma'] } });
+  assert.ok(await waitFor(() => s.has('connections')));
+  const conn = s.get('connections').data;
+  assert.deepEqual(conn.services, ['Jira', 'Figma']);
+  await new Promise(r => setTimeout(r, 100));
+  assert.equal(calls, 0, 'nothing built before Start');
+  await req(port, 'POST', '/api/connect', { id: conn.id, service: 'Jira', action: 'connect' });
+  await req(port, 'POST', '/api/connect', { id: conn.id, service: 'Figma', action: 'skip' });
+  assert.equal((await req(port, 'POST', '/api/connections/start', { id: conn.id })).status, 200);
+  assert.ok(await waitFor(() => s.has('done')));
+  assert.ok(calls > 0);
+  assert.match(firstPrompt, /Connected: Jira\. Skipped: Figma\./);
+  s.destroy(); app.server.close();
+});
+
+await check('stopping at the connect panel never starts the build', async () => {
+  const cwd = mkdtempSync(join(tmpdir(), 'sm-app-'));
+  let calls = 0;
+  const mockModel = async () => { calls++; return { content: [{ type: 'text', text: 'ok' }], stop_reason: 'end_turn' }; };
+  const app = createApp({ cwd, secrets: makeSecrets({ platform: 'win32' }), modelFactory: () => mockModel });
+  const port = await app.listen(0);
+  const s = sse(port);
+  await req(port, 'POST', '/api/ai', { provider: 'anthropic', key: 'sk-ant-x' });
+  await req(port, 'POST', '/api/generate', { answers: { docs: ['figma'] } });
+  assert.ok(await waitFor(() => s.has('connections')));
+  await req(port, 'POST', '/api/stop');
+  await new Promise(r => setTimeout(r, 150));
+  assert.equal(calls, 0, 'no build after a stop');
+  const st = await req(port, 'GET', '/api/status');
+  assert.equal(st.json.run.status, 'idle');
+  assert.equal((await req(port, 'POST', '/api/generate', { answers: {} })).status, 202, 'a new run is allowed after stopping');
+  s.destroy(); app.server.close();
+});
+
+await check('CLI mode: runCli gets the answers-first prompt, and its progress events reach the browser', async () => {
+  const cwd = mkdtempSync(join(tmpdir(), 'sm-app-'));
+  let got = null;
+  const runCli = ({ prompt, onEvent, onDone }) => { got = prompt; onEvent('tool', { name: 'Read', summary: 'README.md' }); onDone(); return { launched: true, headless: true }; };
+  const app = createApp({ cwd, secrets: makeSecrets({ platform: 'win32' }), detectDrivers: () => [{ id: 'claude', bin: 'claude', label: 'Claude Code' }], runCli });
+  const port = await app.listen(0);
+  const s = sse(port);
+  await req(port, 'POST', '/api/ai', { mode: 'cli', driver: 'claude' });
+  await req(port, 'POST', '/api/generate', { answers: { build: 'staging' } });
+  assert.ok(await waitFor(() => s.has('done')));
+  assert.match(got, /^# The interview is ALREADY DONE/);
+  assert.match(got, /staging/);
+  assert.ok(s.events.some(e => e.type === 'tool' && e.data.summary === 'README.md'), 'CLI progress streamed as SSE');
+  s.destroy(); app.server.close();
+});
+
 if (failures) { console.error(`\n${failures} failure(s)`); process.exit(1); }
 console.log('\nserver: all passed');

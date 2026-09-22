@@ -1,12 +1,17 @@
 {
   "name": "smartmonkey-client",
   "version": "0.1.0",
-  "description": "SmartMonkey local client — blueprint your app for AI QA testing. Runs on your machine with your own AI (a logged-in CLI or your own API key); your source never leaves it, only the blueprint/cases you approve.",
+  "description": "SmartMonkey local client \u2014 blueprint your app for AI QA testing. Runs on your machine with your own AI (a logged-in CLI or your own API key); your source never leaves it, only the blueprint/cases you approve.",
   "author": "Kuarasoft",
   "type": "module",
-  "repository": { "type": "git", "url": "git+https://github.com/kuarasofttech/SmartMonkey-Client.git" },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/kuarasofttech/SmartMonkey-Client.git"
+  },
   "homepage": "https://github.com/kuarasofttech/SmartMonkey-Client#readme",
-  "bugs": { "url": "https://github.com/kuarasofttech/SmartMonkey-Client/issues" },
+  "bugs": {
+    "url": "https://github.com/kuarasofttech/SmartMonkey-Client/issues"
+  },
   "bin": {
     "smartmonkey": "cli.mjs"
   },
@@ -20,10 +25,12 @@
     "lock.mjs",
     "serve-port.mjs",
     "terminal.mjs",
+    "headless.mjs",
+    "interview.mjs",
     "assets"
   ],
   "scripts": {
-    "test": "node test/embed.mjs && node test/secrets.mjs && node test/webask.mjs && node test/connections.mjs && node test/terminal.mjs && node test/server.mjs && node test/lock.mjs && node test/serve-port.mjs && node test/app-singleton.mjs",
+    "test": "node test/embed.mjs && node test/secrets.mjs && node test/webask.mjs && node test/connections.mjs && node test/interview.mjs && node test/headless.mjs && node test/terminal.mjs && node test/server.mjs && node test/lock.mjs && node test/serve-port.mjs && node test/app-singleton.mjs",
     "prepublishOnly": "npm test"
   },
   "engines": {

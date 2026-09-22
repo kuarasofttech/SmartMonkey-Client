@@ -4,12 +4,14 @@
  * and interview over SSE. Single local user ⇒ one active run. Zero-dep.
  */
 import { createServer } from 'node:http';
-import { createReadStream, existsSync, statSync, readFileSync } from 'node:fs';
+import { createReadStream, existsSync, statSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { join, resolve, extname, dirname, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawn } from 'node:child_process';
 import { makeWebAsk, answerAsk, makeWebConnections, setConnection, startConnections } from './webask.mjs';
 import { makePopTerminalRunCli } from './terminal.mjs';
+import { makeHeadlessRunCli } from './headless.mjs';
+import { QUESTIONS, normalizeAnswers, servicesFor, answersBlock } from './interview.mjs';
 import { makeSecrets } from './secrets.mjs';
 import * as embed from './embed.mjs';
 import { DRIVERS, detectDrivers as defaultDetectDrivers } from './drivers.mjs';
@@ -33,24 +35,32 @@ function inheritRunCli({ driver, prompt, cwd, onDone, onError }) {
   return { launched: true, inTerminal: true };
 }
 
+const headlessRunCli = makeHeadlessRunCli();
 const popRunCli = makePopTerminalRunCli();
 
-// Default: pop a NEW terminal window for the interview so a double-clicked launch
-// still gets a real TTY; fall back to the launching terminal when we can't
-// (unknown platform terminal, or SMARTMONKEY_TERMINAL=inherit).
+// Default: run the CLI HEADLESS with progress in the browser (the interview is
+// already answered in the app, so it needs no terminal). For a driver without a
+// verified headless recipe, pop a terminal window; failing that, use the terminal
+// the app was launched from. SMARTMONKEY_TERMINAL=pop|inherit forces a fallback.
 function defaultRunCli(opts) {
-  if (process.env.SMARTMONKEY_TERMINAL !== 'inherit') {
-    try { return popRunCli(opts); }
+  const force = process.env.SMARTMONKEY_TERMINAL;
+  const tries = force === 'inherit' ? [] : force === 'pop' ? [popRunCli] : [headlessRunCli, popRunCli];
+  for (const run of tries) {
+    try { return run(opts); }
     catch (e) { if (e.code !== 'UNSUPPORTED') { opts.onError(e); return { launched: false }; } }
   }
   return inheritRunCli(opts);
 }
 
 export function createApp({ cwd = process.cwd(), secrets = makeSecrets(), modelFactory,
-  detectDrivers = defaultDetectDrivers, runCli = defaultRunCli } = {}) {
+  detectDrivers = defaultDetectDrivers, runCli = defaultRunCli, openBrowser = () => {} } = {}) {
   const KIT = join(resolve(cwd), 'smartmonkey');
+  const INTERVIEW = join(KIT, 'interview.json');
+  let port = null;   // set by listen(); used to bring the browser back after a terminal-window run
+  const loadAnswers = () => { try { return JSON.parse(readFileSync(INTERVIEW, 'utf8')); } catch { return null; } };
+  const saveAnswers = a => { try { mkdirSync(KIT, { recursive: true }); writeFileSync(INTERVIEW, JSON.stringify(a, null, 2)); } catch {} };
   const make = modelFactory || ((provider, model, key) => embed.PROVIDERS[provider].make(key, model));
-  const session = { status: 'idle', running: false, error: null, events: [], clients: new Set(), pendingAsk: null, pendingConnections: null, cliCancel: null, ai: { provider: null, model: null }, key: null, mode: 'embedded', driver: null };
+  const session = { status: 'idle', running: false, error: null, events: [], clients: new Set(), pendingAsk: null, pendingConnections: null, cliCancel: null, stopRequested: false, ai: { provider: null, model: null }, key: null, mode: 'embedded', driver: null };
 
   const emit = (type, data) => { const ev = { type, data }; session.events.push(ev); for (const r of session.clients) writeSse(r, ev); };
   const isDriverReady = () => session.driver && detectDrivers().some(d => d.id === session.driver);
@@ -62,6 +72,40 @@ export function createApp({ cwd = process.cwd(), secrets = makeSecrets(), modelF
     res.writeHead(200, { 'content-type': MIME[extname(file)] || 'application/octet-stream' });
     createReadStream(file).pipe(res);
   };
+
+  const finish = () => emit('done', { blueprint: existsSync(join(KIT, 'blueprint.json')) });
+  const fail = e => { session.running = false; session.status = 'error'; session.error = e.message; emit('error', { message: e.message }); };
+
+  function launchEmbedded(prompt) {
+    const webask = makeWebAsk(session, emit);
+    const webconn = makeWebConnections(session, emit);
+    const base = embed.makeToolRunner(cwd, webask, webconn);
+    const runTool = async (name, input) => { emit('tool', { name, summary: input?.path || input?.query || input?.args?.join(' ') || '' }); return base(name, input); };
+    const callModel = make(session.ai.provider, session.ai.model, session.key);
+    embed.runAgent({ prompt, callModel, runTool, onText: t => { if (t && t.trim()) emit('text', t); } })
+      .then(() => { session.status = 'done'; session.running = false; finish(); })
+      .catch(fail);
+  }
+
+  function launchCli(driver, prompt) {
+    emit('text', `Starting ${driver.label}…`);
+    let handle = null;
+    handle = runCli({
+      driver, prompt, cwd,
+      onEvent: (type, data) => emit(type, data),
+      onDone: () => {
+        session.cliCancel = null; session.running = false; session.status = 'done'; finish();
+        // A run in its own terminal window took the user away from the browser — bring them back to the result.
+        if (handle && !handle.headless && !handle.inTerminal && port) openBrowser(`http://127.0.0.1:${port}/view.html`);
+      },
+      onError: e => { session.cliCancel = null; fail(e); },
+    });
+    session.cliCancel = handle && handle.cancel ? handle.cancel : null;
+    if (!session.running) return;   // it already finished (or failed) synchronously
+    if (handle && handle.headless) emit('text', `${driver.label} is building the blueprint in the background. Progress appears below; this page updates when it's done.`);
+    else if (handle && handle.inTerminal) emit('text', `Running ${driver.label} in the terminal where you started \`smartmonkey app\`.`);
+    else if (handle && handle.launched) emit('text', `A terminal window opened to run ${driver.label}. This page comes back when it finishes.`);
+  }
 
   async function handle(req, res) {
     const url = new URL(req.url, 'http://127.0.0.1');
@@ -103,36 +147,36 @@ export function createApp({ cwd = process.cwd(), secrets = makeSecrets(), modelF
       return sendJson(res, { ok: true, ready: ready(), keychain: { available: secrets.available() } });
     }
 
+    if (path === '/api/interview' && method === 'GET') {
+      return sendJson(res, { questions: QUESTIONS, saved: loadAnswers() });
+    }
+
     if (path === '/api/generate' && method === 'POST') {
       if (session.running) return sendJson(res, { error: 'a run is already active' }, 409);
+      const body = await readBody(req);
+      // With answers, the interview already happened in the browser; without them
+      // (older clients, the tests' agent-driven path) the agent interviews itself.
+      const answers = body.answers ? normalizeAnswers(body.answers) : null;
 
+      let driver = null;
       if (session.mode === 'cli') {
-        const d = DRIVERS.find(x => x.id === session.driver);
-        if (!d || !detectDrivers().some(x => x.id === d.id)) return sendJson(res, { error: 'selected CLI not available — choose a logged-in CLI' }, 400);
-        session.running = true; session.status = 'running'; session.error = null; session.events = []; session.pendingAsk = null;
-        const handle = runCli({
-          driver: d, prompt: PROMPT(), cwd,
-          onDone: () => { session.cliCancel = null; session.running = false; session.status = 'done'; emit('done', { blueprint: existsSync(join(KIT, 'blueprint.json')) }); },
-          onError: e => { session.cliCancel = null; session.running = false; session.status = 'error'; session.error = e.message; emit('error', { message: e.message }); },
-        });
-        session.cliCancel = handle && handle.cancel ? handle.cancel : null;
-        emit('text', handle && handle.inTerminal
-          ? `Running ${d.label} in the terminal where you started \`smartmonkey app\` — answer its questions there.`
-          : `A terminal window is opening to run ${d.label} — answer its questions there, then come back here.`);
-        return sendJson(res, { ok: true }, 202);
-      }
+        driver = DRIVERS.find(x => x.id === session.driver);
+        if (!driver || !detectDrivers().some(x => x.id === driver.id)) return sendJson(res, { error: 'selected CLI not available — choose a logged-in CLI' }, 400);
+      } else if (!ready()) return sendJson(res, { error: 'AI not ready — set a provider + key first' }, 400);
 
-      if (!ready()) return sendJson(res, { error: 'AI not ready — set a provider + key first' }, 400);
+      session.running = true; session.status = 'running'; session.error = null; session.events = [];
+      session.pendingAsk = null; session.pendingConnections = null; session.stopRequested = false;
+      if (answers) saveAnswers(answers);
 
-      session.status = 'running'; session.running = true; session.error = null; session.events = []; session.pendingAsk = null; session.pendingConnections = null;
-      const webask = makeWebAsk(session, emit);
-      const webconn = makeWebConnections(session, emit);
-      const base = embed.makeToolRunner(cwd, webask, webconn);
-      const runTool = async (name, input) => { emit('tool', { name, summary: input?.path || input?.query || input?.args?.join(' ') || '' }); return base(name, input); };
-      const callModel = make(session.ai.provider, session.ai.model, session.key);
-      embed.runAgent({ prompt: PROMPT(), callModel, runTool, onText: t => { if (t && t.trim()) emit('text', t); } })
-        .then(() => { session.status = 'done'; session.running = false; emit('done', { blueprint: existsSync(join(KIT, 'blueprint.json')) }); })
-        .catch(e => { session.status = 'error'; session.running = false; session.error = e.message; emit('error', { message: e.message }); });
+      // Tools the answers draw on are connected (or skipped) BEFORE anything is built.
+      const services = answers ? servicesFor(answers) : [];
+      const gate = services.length ? makeWebConnections(session, emit)(services) : Promise.resolve(null);
+      gate.then(summary => {
+        if (session.stopRequested) { session.running = false; return; }
+        const connections = summary && summary.replace(/^The user finished the connect step\.\s*/, '').replace(/\s*Now build the blueprint\.$/, '');
+        const prompt = (answers ? answersBlock(answers, connections) : '') + PROMPT();
+        if (driver) launchCli(driver, prompt); else launchEmbedded(prompt);
+      });
       return sendJson(res, { ok: true }, 202);
     }
 
@@ -166,7 +210,8 @@ export function createApp({ cwd = process.cwd(), secrets = makeSecrets(), modelF
     if (path === '/api/stop' && method === 'POST') {
       if (session.pendingAsk) answerAsk(session, session.pendingAsk.id, '');   // unblock a waiting ask
       if (session.pendingConnections) { const p = session.pendingConnections; session.pendingConnections = null; p.resolve('The user stopped the run at the connect step.'); }
-      if (session.cliCancel) { session.cliCancel(); session.cliCancel = null; session.running = false; }   // stop watching a popped-terminal interview
+      session.stopRequested = true;   // a build still waiting at the connect panel must not start
+      if (session.cliCancel) { session.cliCancel(); session.cliCancel = null; session.running = false; }   // kill a headless run / stop watching a terminal window
       session.status = 'idle';
       // best-effort: no mid-turn abort; `running` stays set until the live loop settles, so a new generate is refused until then
       return sendJson(res, { ok: true });
@@ -192,7 +237,7 @@ export function createApp({ cwd = process.cwd(), secrets = makeSecrets(), modelF
     listen(port) {
       return new Promise((resolve, reject) => {
         const onError = e => { server.removeListener('listening', onListening); reject(e); };
-        const onListening = () => { server.removeListener('error', onError); resolve(server.address().port); };
+        const onListening = () => { server.removeListener('error', onError); port = server.address().port; resolve(port); };
         server.once('error', onError);
         server.listen(port, '127.0.0.1', onListening);
       });
