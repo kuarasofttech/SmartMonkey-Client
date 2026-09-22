@@ -441,5 +441,66 @@ await check('the answers block now invites project-specific questions via ask_us
   app.server.close();
 });
 
+// ---- the interview happens DURING the run -------------------------------------------
+await check('a normal build (no pre-supplied answers) gets the in-run interview block', async () => {
+  const cwd = mkdtempSync(join(tmpdir(), 'sm-app-'));
+  let got = null;
+  const runCli = ({ prompt, onDone }) => { got = prompt; onDone(); return { launched: true, headless: true }; };
+  const app = createApp({ cwd, secrets: makeSecrets({ platform: 'win32' }), detectDrivers: () => [{ id: 'claude', bin: 'claude', label: 'Claude Code' }], runCli });
+  const port = await app.listen(0);
+  await req(port, 'POST', '/api/ai', { mode: 'cli', driver: 'claude' });
+  await req(port, 'POST', '/api/generate');
+  await waitFor(() => got);
+  assert.match(got, /^# How the interview works here/);
+  assert.match(got, /Read the repo first/);
+  assert.match(got, /# Build the SmartMonkey QA blueprint/);
+  app.server.close();
+});
+
+await check('mid-run request_connections shows the Connect panel and returns the outcome to the build', async () => {
+  const { app, run } = pendingCliApp();
+  const port = await app.listen(0);
+  const s = sse(port);
+  await req(port, 'POST', '/api/ai', { mode: 'cli', driver: 'claude' });
+  await req(port, 'POST', '/api/generate');
+  await waitFor(() => run.bridge);
+  const H = { 'x-smartmonkey-token': run.bridge.token };
+  const posted = await reqH(port, 'POST', '/api/agent-ask', { kind: 'connections', services: ['Jira', 'Figma'] }, H);
+  assert.ok(await waitFor(() => s.has('connections')));
+  const c = s.get('connections').data;
+  assert.deepEqual(c.services, ['Jira', 'Figma']);
+  await req(port, 'POST', '/api/connect', { id: c.id, service: 'Jira', action: 'connect' });
+  await req(port, 'POST', '/api/connect', { id: c.id, service: 'Figma', action: 'skip' });
+  await req(port, 'POST', '/api/connections/start', { id: c.id });
+  const got = await reqH(port, 'GET', `/api/agent-ask/${posted.json.id}`, null, H);
+  assert.equal(got.json.answer, 'Connected: Jira. Skipped: Figma.');
+  s.destroy(); app.server.close();
+});
+
+await check('the owner\'s answers are remembered and offered first on the next run', async () => {
+  const cwd = mkdtempSync(join(tmpdir(), 'sm-app-'));
+  const runs = [];
+  const runCli = ({ prompt, askBridge, onDone }) => { runs.push({ prompt, askBridge, onDone }); return { launched: true, headless: true, cancel() {} }; };
+  const app = createApp({ cwd, secrets: makeSecrets({ platform: 'win32' }), detectDrivers: () => [{ id: 'claude', bin: 'claude', label: 'Claude Code' }], runCli, askPollMs: 150 });
+  const port = await app.listen(0);
+  const s = sse(port);
+  await req(port, 'POST', '/api/ai', { mode: 'cli', driver: 'claude' });
+  await req(port, 'POST', '/api/generate');
+  await waitFor(() => runs.length === 1);
+  const H = { 'x-smartmonkey-token': runs[0].askBridge.token };
+  const posted = await reqH(port, 'POST', '/api/agent-ask', { kind: 'ask', question: 'Which build should a tester use?', options: ['devDebug', 'prodRelease'] }, H);
+  await waitFor(() => s.has('ask'));
+  await req(port, 'POST', '/api/answer', { id: s.get('ask').data.id, answer: 'devDebug' });
+  await reqH(port, 'GET', `/api/agent-ask/${posted.json.id}`, null, H);
+  runs[0].onDone();
+  await waitFor(() => s.has('done'));
+  assert.ok(existsSync(join(cwd, 'smartmonkey', 'owner-answers.json')));
+  await req(port, 'POST', '/api/generate');
+  await waitFor(() => runs.length === 2);
+  assert.match(runs[1].prompt, /Last time the owner answered/);
+  assert.match(runs[1].prompt, /Which build should a tester use\? → devDebug/);
+  s.destroy(); app.server.close();
+});
+
 if (failures) { console.error(`\n${failures} failure(s)`); process.exit(1); }
 console.log('\nserver: all passed');

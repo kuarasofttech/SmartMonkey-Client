@@ -5,7 +5,7 @@
  *   node test/interview.mjs
  */
 import { strict as assert } from 'node:assert';
-const { QUESTIONS, isAsked, normalizeAnswers, servicesFor, answersBlock } = await import('../interview.mjs');
+const { QUESTIONS, isAsked, normalizeAnswers, servicesFor, answersBlock, runBlock } = await import('../interview.mjs');
 
 let failures = 0;
 function check(name, fn) { try { fn(); console.log(`  ok  ${name}`); } catch (e) { failures++; console.error(`FAIL  ${name}: ${e.message}`); } }
@@ -77,6 +77,36 @@ check('answersBlock: a blank text answer states the default instead of leaving i
   const b = answersBlock(normalizeAnswers({}), null);
   assert.match(b, /debug\/dev variant/);
   assert.match(b, /No external tools to connect|none needed/i);
+});
+
+check('runBlock: the interview happens during the run, after reading the repo, always with options', () => {
+  const b = runBlock();
+  assert.match(b, /read the repo first/i);
+  assert.match(b, /ask_user/);
+  assert.match(b, /every question MUST come with options/i);
+  for (const q of QUESTIONS) assert.ok(b.includes(q.label), `covers "${q.label}"`);
+  assert.match(b, /The blueprint only.*The blueprint and test cases/s, 'fixed questions carry their exact options');
+  assert.match(b, /Which build should a tester use\?[^\n]*options you found in the repo/i, 'repo-dependent ones ask for found options');
+  assert.match(b, /request_connections/, 'the connect step happens mid-run when a tool comes up');
+  assert.match(b, /"asked"/, 'answers are recorded with confidence asked');
+});
+
+check('runBlock: open questions get ASKED now (the "leave it for later" rule is overridden), never secrets', () => {
+  const b = runBlock();
+  assert.match(b, /Ask last, and ask short/, 'names the builder-prompt rule it overrides');
+  assert.match(b, /does NOT apply/i);
+  assert.match(b, /Before you write `blueprint\.json`/);
+  assert.match(b, /never ask for a secret/i);
+  assert.match(b, /Ask every one of them/);
+  assert.match(b, /Not sure — leave it open/);
+  assert.match(b, /ONLY what the owner skipped/);
+  assert.match(b, /env var/i);
+});
+
+check('runBlock: previous answers are offered first on a re-run', () => {
+  const b = runBlock([{ question: 'Which build should a tester use?', answer: 'devDebug' }]);
+  assert.match(b, /devDebug/);
+  assert.match(b, /first option/i);
 });
 
 if (failures) { console.error(`\n${failures} failure(s)`); process.exit(1); }

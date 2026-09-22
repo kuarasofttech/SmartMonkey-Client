@@ -15,8 +15,10 @@ gaps.
 
 ## First, a short interview
 
-**If this prompt opens with my answers from the SmartMonkey app, the interview is already
-done — do not ask any of these; use those answers and go straight on.**
+**Running inside the SmartMonkey app?** If this prompt opens with my answers, the interview is
+already done — don't ask these; use those answers. If it opens with "How the interview works
+here", follow that instead: read the repo first, then ask these during the run with `ask_user`,
+always with options.
 
 Otherwise, before you read any code, ASK me these questions — **one at a time, and WAIT for my answer
 before the next.** Present the options as a numbered list; I reply with a number (or my own

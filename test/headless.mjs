@@ -122,6 +122,7 @@ await check('with an ask bridge: loads ONLY our MCP server, allows ask_user, and
   assert.deepEqual(srv.env, { SMARTMONKEY_ASK_URL: 'http://127.0.0.1:9/api/agent-ask', SMARTMONKEY_ASK_TOKEN: 'tok' });
   assert.ok(c.args.includes('--strict-mcp-config'), "the user's own MCP servers stay out of the build");
   assert.ok(c.args.includes('mcp__smartmonkey__ask_user'));
+  assert.ok(c.args.includes('mcp__smartmonkey__request_connections'));
   assert.equal(c.args.indexOf('--mcp-config') < c.args.indexOf('--allowedTools'), true, 'variadic --allowedTools stays last');
   assert.ok(Number(c.env.MCP_TOOL_TIMEOUT) >= 3600000, 'an answer can take a while');
 });

@@ -12,7 +12,7 @@ import { randomBytes } from 'node:crypto';
 import { makeWebAsk, answerAsk, makeWebConnections, setConnection, startConnections } from './webask.mjs';
 import { makePopTerminalRunCli } from './terminal.mjs';
 import { makeHeadlessRunCli } from './headless.mjs';
-import { QUESTIONS, normalizeAnswers, servicesFor, answersBlock } from './interview.mjs';
+import { QUESTIONS, normalizeAnswers, servicesFor, answersBlock, runBlock } from './interview.mjs';
 import { makeSecrets } from './secrets.mjs';
 import * as embed from './embed.mjs';
 import { DRIVERS, detectDrivers as defaultDetectDrivers } from './drivers.mjs';
@@ -60,6 +60,15 @@ export function createApp({ cwd = process.cwd(), secrets = makeSecrets(), modelF
   let port = null;   // set by listen(); used to bring the browser back after a terminal-window run
   const loadAnswers = () => { try { return JSON.parse(readFileSync(INTERVIEW, 'utf8')); } catch { return null; } };
   const saveAnswers = a => { try { mkdirSync(KIT, { recursive: true }); writeFileSync(INTERVIEW, JSON.stringify(a, null, 2)); } catch {} };
+  // What the owner answered DURING a run, offered back first next time (smartmonkey/owner-answers.json).
+  const OWNER_ANSWERS = join(KIT, 'owner-answers.json');
+  const loadOwnerAnswers = () => { try { const j = JSON.parse(readFileSync(OWNER_ANSWERS, 'utf8')); return Array.isArray(j.answers) ? j.answers : []; } catch { return []; } };
+  const recordOwnerAnswer = (question, answer) => {
+    if (!question || !answer) return;
+    const list = loadOwnerAnswers().filter(x => x.question !== question);
+    list.push({ question, answer, at: new Date().toISOString() });
+    try { mkdirSync(KIT, { recursive: true }); writeFileSync(OWNER_ANSWERS, JSON.stringify({ answers: list.slice(-40) }, null, 2)); } catch {}
+  };
   // Mid-run questions from a headless CLI arrive over HTTP from ask-mcp.mjs. The token
   // (per app instance) keeps anything else on the machine from injecting questions.
   const askToken = randomBytes(24).toString('hex');
@@ -168,8 +177,13 @@ export function createApp({ cwd = process.cwd(), secrets = makeSecrets(), modelF
       agentAsks.set(id, entry);
       const gen = session.gen, ask = session.webask;
       const options = Array.isArray(body.options) ? body.options.map(String).filter(Boolean).slice(0, 12) : [];
+      const services = Array.isArray(body.services) ? body.services.map(String).filter(Boolean) : [];
+      const connect = () => makeWebConnections(session, emit)(services)
+        .then(sum => String(sum).replace(/^The user finished the connect step\.\s*/, '').replace(/\s*Now build the blueprint\.$/, ''));
       askChain = askChain
-        .then(() => (gen === session.gen && entry.answer === undefined ? ask(String(body.question || ''), options, !!body.multi) : ''))
+        .then(() => (gen !== session.gen || entry.answer !== undefined ? ''
+          : body.kind === 'connections' ? connect()
+          : ask(String(body.question || ''), options, !!body.multi)))
         .then(ans => { if (entry.answer === undefined) entry.answer = ans; entry.waiters.splice(0).forEach(w => w()); });
       return sendJson(res, { id });
     }
@@ -203,7 +217,8 @@ export function createApp({ cwd = process.cwd(), secrets = makeSecrets(), modelF
       const gen = ++session.gen;
       session.running = true; session.status = 'running'; session.error = null; session.events = [];
       session.pendingAsk = null; session.pendingConnections = null;
-      session.webask = makeWebAsk(session, emit);
+      const pageAsk = makeWebAsk(session, emit);
+      session.webask = async (q, o, m) => { const a = await pageAsk(q, o, m); recordOwnerAnswer(q, a); return a; };
       agentAsks.clear();
       if (answers) saveAnswers(answers);
 
@@ -213,7 +228,8 @@ export function createApp({ cwd = process.cwd(), secrets = makeSecrets(), modelF
       gate.then(summary => {
         if (gen !== session.gen) return;   // stopped while waiting at the connect panel
         const connections = summary && summary.replace(/^The user finished the connect step\.\s*/, '').replace(/\s*Now build the blueprint\.$/, '');
-        const prompt = (answers ? answersBlock(answers, connections) : '') + PROMPT();
+        // Pre-supplied answers (API callers) skip the interview; otherwise it happens during the run.
+        const prompt = (answers ? answersBlock(answers, connections) : runBlock(loadOwnerAnswers())) + PROMPT();
         if (driver) launchCli(driver, prompt, gen); else launchEmbedded(prompt, gen);
       });
       return sendJson(res, { ok: true }, 202);

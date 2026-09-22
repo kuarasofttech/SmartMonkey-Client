@@ -93,6 +93,9 @@
   .ask .ask-note { font-size:12px; color:var(--slate); margin:0 0 6px; }
   .ask .pill { background:var(--surface); }
   .ask .other { margin-top:10px; }
+  .ask .pill.picked { border-color:var(--brand); background:var(--brand-soft); color:var(--brand); }
+  .ask .other-pill { font:inherit; font-size:14px; font-weight:600; color:var(--slate); border-style:dashed; }
+  .ask .other-pill:hover { color:var(--brand); filter:none; }
   .ask .ask-actions { display:flex; gap:8px; margin-top:12px; }
   #doneMsg { margin:14px 0 0; }
   a.review { display:inline-block; padding:10px 16px; border-radius:8px; background:var(--brand); color:var(--on-brand); font-weight:600; }
@@ -140,21 +143,15 @@
       <label>Logged-in CLI</label>
       <select id="driver"></select>
       <p class="status" id="driverNote"></p>
-      <p class="status">You answer the questions below here in the browser; your CLI then builds the blueprint in the background, with progress on this page.</p>
+      <p class="status">Your CLI builds the blueprint in the background. Its questions and progress appear on this page.</p>
     </div>
 
     <div class="status" id="aiStatus"></div>
   </div>
 
   <div class="card">
-    <div class="step"><span class="n">2</span><h2>About your app</h2></div>
-    <p class="sub">A few questions so the build knows what to look for. The defaults are fine if you're unsure.</p>
-    <div id="interview"><p class="status">Loading questions…</p></div>
-  </div>
-
-  <div class="card">
-    <div class="step"><span class="n">3</span><h2>Build the blueprint</h2></div>
-    <p class="sub">Reads your repo with your answers, connects any tools you named, then writes <code>smartmonkey/blueprint.json</code>.</p>
+    <div class="step"><span class="n">2</span><h2>Build the blueprint</h2></div>
+    <p class="sub">Reads your repo, then asks you a few questions about it right here, where you just click an answer, and writes <code>smartmonkey/blueprint.json</code>.</p>
     <div class="actions"><button id="gen" disabled>Build blueprint</button><button id="stop" class="ghost hide">Stop</button></div>
     <div id="asks"></div>
     <label style="margin-top:14px">Progress</label>
@@ -246,112 +243,60 @@ $('modeCli').onchange = async () => {
   refresh();
 };
 
-// ---- the interview: asked here, with real choices, before anything is built ----
-let QUESTIONS = [], ANSWERS = {};
-const asked = (q, a) => !q.when || Object.entries(q.when).every(([id, want]) => Array.isArray(want) ? want.includes(a[id]) : a[id] === want);
 const el = (tag, cls, text) => { const n = document.createElement(tag); if (cls) n.className = cls; if (text != null) n.textContent = text; return n; };
-
-function renderInterview() {
-  const box = $('interview'); box.innerHTML = '';
-  for (const q of QUESTIONS) {
-    const wrap = el('div', 'q'); wrap.dataset.id = q.id;
-    const labelId = 'q-' + q.id;
-    const lab = el('div', 'q-label', q.label); lab.id = labelId; wrap.appendChild(lab);
-    if (q.hint) wrap.appendChild(el('p', 'q-hint', q.hint));
-    if (q.type === 'text') {
-      const inp = el(q.long ? 'textarea' : 'input');
-      if (!q.long) inp.type = 'text';
-      inp.placeholder = q.placeholder || ''; inp.value = ANSWERS[q.id] || '';
-      inp.setAttribute('aria-labelledby', labelId);
-      inp.oninput = () => { ANSWERS[q.id] = inp.value; };
-      wrap.appendChild(inp);
-    } else {
-      const group = el('div', 'pills'); group.setAttribute('role', q.type === 'multi' ? 'group' : 'radiogroup'); group.setAttribute('aria-labelledby', labelId);
-      for (const o of q.options) {
-        const pill = el('label', 'pill');
-        const inp = el('input'); inp.type = q.type === 'multi' ? 'checkbox' : 'radio'; inp.name = 'q-' + q.id; inp.value = o.value;
-        inp.checked = q.type === 'multi' ? (ANSWERS[q.id] || []).includes(o.value) : ANSWERS[q.id] === o.value;
-        inp.onchange = () => {
-          ANSWERS[q.id] = q.type === 'multi' ? [...group.querySelectorAll('input:checked')].map(i => i.value) : o.value;
-          applyWhen();
-        };
-        pill.appendChild(inp); pill.appendChild(document.createTextNode(o.label));
-        if (o.hint) pill.appendChild(el('small', null, o.hint));
-        group.appendChild(pill);
-      }
-      wrap.appendChild(group);
-    }
-    box.appendChild(wrap);
-  }
-  applyWhen();
-}
-// Show or hide the follow-up questions for the answers so far (e.g. "where are your cases" only when making cases).
-function applyWhen() {
-  const visible = {};
-  for (const q of QUESTIONS) {
-    const show = asked(q, visible);
-    document.querySelector(`.q[data-id="${q.id}"]`).classList.toggle('hide', !show);
-    if (show) visible[q.id] = ANSWERS[q.id];
-  }
-}
-function collectAnswers() {
-  const out = {};
-  for (const q of QUESTIONS) if (asked(q, out)) out[q.id] = ANSWERS[q.id];
-  return out;
-}
-async function loadInterview() {
-  const r = await api('GET', '/api/interview');
-  QUESTIONS = (r && r.questions) || [];
-  const saved = (r && r.saved) || {};
-  for (const q of QUESTIONS) ANSWERS[q.id] = q.id in saved ? saved[q.id] : (q.type === 'text' ? '' : q.type === 'multi' ? [...q.default] : q.default);
-  if (QUESTIONS.length) renderInterview();
-  else $('interview').innerHTML = '<p class="status">Could not load the questions. Restart <code>smartmonkey app</code> and reload this page.</p>';
-}
 
 $('stop').onclick = async () => { $('stop').disabled = true; await api('POST', '/api/stop'); refresh(); };
 
 $('gen').onclick = async () => {
   $('log').textContent = ''; $('asks').innerHTML = ''; $('doneMsg').classList.add('hide');
-  const r = await api('POST', '/api/generate', { answers: collectAnswers() });
+  const r = await api('POST', '/api/generate');
   if (r && r.error) logLine('✗ ' + r.error);
   refresh();
 };
 
-// A question from the build, mid-run: clickable choices (one or several), or your own words.
+// A question from the build, mid-run. Answer by clicking: one click for a single
+// choice; tick and press Done for several. "Other…" opens a box only when needed.
 function renderAsk(a) {
   if (document.getElementById('ask-' + a.id)) return;
   const box = el('div', 'ask'); box.id = 'ask-' + a.id;
   box.appendChild(el('p', 'ask-q', a.question));
-  const opts = a.options || [];
-  let group = null;
-  if (opts.length) {
-    if (a.multi) box.appendChild(el('p', 'ask-note', 'Pick all that apply.'));
-    group = el('div', 'pills');
-    opts.forEach(o => {
-      const pill = el('label', 'pill');
-      const inp = el('input'); inp.type = a.multi ? 'checkbox' : 'radio'; inp.name = 'ask-' + a.id; inp.value = o;
-      pill.appendChild(inp); pill.appendChild(document.createTextNode(o)); group.appendChild(pill);
-    });
-    box.appendChild(group);
-  }
-  const other = el('input', 'other'); other.type = 'text'; other.placeholder = opts.length ? 'Or type your own answer' : 'Your answer';
-  box.appendChild(other);
+  if (a.multi) box.appendChild(el('p', 'ask-note', 'Pick all that apply, then press Done.'));
+  const group = el('div', 'pills'); box.appendChild(group);
+  const typed = el('input', 'other hide'); typed.type = 'text'; typed.placeholder = 'Type your answer';
   const acts = el('div', 'ask-actions');
-  const send = el('button', null, 'Answer');
+  const done = el('button', a.multi ? null : 'hide', a.multi ? 'Done' : 'Answer');
   const skip = el('button', 'ghost', 'Skip');
+  let sent = false;
   const submit = async answer => {
-    send.disabled = skip.disabled = true;
+    if (sent) return; sent = true;
+    box.querySelectorAll('button, input').forEach(x => x.disabled = true);
     await api('POST', '/api/answer', { id: a.id, answer });
-    box.remove(); logLine(`· you answered: ${Array.isArray(answer) ? answer.join(', ') : (answer || '(skipped)')}`); flagQuestion();
+    box.remove(); flagQuestion();
+    logLine(`· you answered: ${Array.isArray(answer) ? answer.join(', ') : (answer || '(skipped)')}`);
   };
-  send.onclick = () => {
-    const typed = other.value.trim();
-    const picked = group ? [...group.querySelectorAll('input:checked')].map(i => i.value) : [];
-    submit(typed || (a.multi ? picked : picked[0] || ''));
+  const choose = (value, pill) => {
+    if (a.multi) return;                       // multi waits for Done
+    pill.classList.add('picked'); setTimeout(() => submit(value), 180);   // a beat so the click registers visually
   };
+  for (const o of a.options || []) {
+    const pill = el('label', 'pill');
+    const inp = el('input'); inp.type = a.multi ? 'checkbox' : 'radio'; inp.name = 'ask-' + a.id; inp.value = o;
+    inp.onchange = () => choose(o, pill);
+    pill.appendChild(inp); pill.appendChild(document.createTextNode(o)); group.appendChild(pill);
+  }
+  const other = el('button', 'pill other-pill', 'Other…');
+  other.onclick = () => { typed.classList.remove('hide'); done.classList.remove('hide'); done.textContent = 'Answer'; typed.focus(); };
+  group.appendChild(other);
+  box.appendChild(typed);
+  done.onclick = () => {
+    const t = typed.value.trim();
+    if (t) return submit(t);
+    const picked = [...group.querySelectorAll('input:checked')].map(i => i.value);
+    if (picked.length) submit(a.multi ? picked : picked[0]);
+  };
+  typed.onkeydown = e => { if (e.key === 'Enter') done.onclick(); };
   skip.onclick = () => submit('');
-  other.onkeydown = e => { if (e.key === 'Enter') send.onclick(); };
-  acts.appendChild(send); acts.appendChild(skip); box.appendChild(acts);
+  acts.appendChild(done); acts.appendChild(skip); box.appendChild(acts);
   $('asks').appendChild(box);
   box.scrollIntoView({ block: 'center', behavior: 'smooth' });
   flagQuestion();
@@ -419,7 +364,6 @@ es.addEventListener('done', e => { logLine('\n✓ Done.'); refresh(); });
 es.addEventListener('stopped', () => { $('asks').innerHTML = ''; flagQuestion(); logLine('\n■ Stopped. Nothing more was built; you can change your answers and build again.'); refresh(); });
 es.addEventListener('error', e => { try { logLine('\n✗ ' + JSON.parse(e.data).message); } catch {} });
 
-loadInterview();
 refresh();
 </script>
 </body>

@@ -34,7 +34,7 @@ export function headlessCommand(driver, askBridge) {
   if (askBridge) {
     const cfg = { mcpServers: { smartmonkey: { command: process.execPath, args: [ASK_MCP], env: { SMARTMONKEY_ASK_URL: askBridge.url, SMARTMONKEY_ASK_TOKEN: askBridge.token } } } };
     args.push('--mcp-config', JSON.stringify(cfg), '--strict-mcp-config');
-    tools.push('mcp__smartmonkey__ask_user');
+    tools.push('mcp__smartmonkey__ask_user', 'mcp__smartmonkey__request_connections');
     env.MCP_TOOL_TIMEOUT = ASK_TIMEOUT_MS;
   }
   args.push('--allowedTools', ...tools);   // variadic — must stay last
@@ -52,6 +52,7 @@ export function parseClaudeLine(line, cwd) {
     for (const b of (j.message && j.message.content) || []) {
       if (b.type === 'text' && b.text && b.text.trim()) out.push({ type: 'text', data: b.text });
       else if (b.type === 'tool_use' && b.name === 'mcp__smartmonkey__ask_user') out.push({ type: 'tool', data: { name: 'asking you', summary: (b.input && b.input.question) || '' } });
+      else if (b.type === 'tool_use' && b.name === 'mcp__smartmonkey__request_connections') out.push({ type: 'tool', data: { name: 'connect', summary: ((b.input && b.input.services) || []).join(', ') } });
       else if (b.type === 'tool_use') out.push({ type: 'tool', data: { name: b.name, summary: summarize(b.input, cwd) } });
     }
     return out;

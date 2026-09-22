@@ -4,7 +4,7 @@
  *   node test/ask-mcp.mjs
  */
 import { strict as assert } from 'node:assert';
-const { handleMessage, httpAsk, ASK_TOOL } = await import('../ask-mcp.mjs');
+const { handleMessage, httpAsk, ASK_TOOL, CONNECT_TOOL } = await import('../ask-mcp.mjs');
 
 let failures = 0;
 async function check(name, fn) { try { await fn(); console.log(`  ok  ${name}`); } catch (e) { failures++; console.error(`FAIL  ${name}: ${e.message}`); } }
@@ -17,24 +17,40 @@ await check('notifications get no reply; unknown methods get -32601', async () =
   assert.equal(await handleMessage({ jsonrpc: '2.0', method: 'notifications/initialized' }, null), null);
   assert.equal((await handleMessage({ jsonrpc: '2.0', id: 2, method: 'resources/list' }, null)).error.code, -32601);
 });
-await check('tools/list offers exactly ask_user', async () => {
+await check('tools/list offers ask_user (options required) and request_connections', async () => {
   const r = await handleMessage({ jsonrpc: '2.0', id: 3, method: 'tools/list' }, null);
-  assert.deepEqual(r.result.tools.map(t => t.name), ['ask_user']);
-  assert.deepEqual(ASK_TOOL.inputSchema.required, ['question']);
+  assert.deepEqual(r.result.tools.map(t => t.name), ['ask_user', 'request_connections']);
+  assert.deepEqual(ASK_TOOL.inputSchema.required, ['question', 'options']);
+  assert.equal(ASK_TOOL.inputSchema.properties.options.minItems, 2);
+  assert.deepEqual(CONNECT_TOOL.inputSchema.required, ['services']);
+});
+await check('ask_user without options bounces back so the agent retries with choices', async () => {
+  let asked = false;
+  const r = await handleMessage({ jsonrpc: '2.0', id: 9, method: 'tools/call', params: { name: 'ask_user', arguments: { question: 'Which build?' } } }, async () => { asked = true; return 'x'; });
+  assert.equal(asked, false, 'never reaches the owner');
+  assert.equal(r.result.isError, true);
+  assert.match(r.result.content[0].text, /options/);
+});
+await check('request_connections forwards the tools and returns the outcome', async () => {
+  let got = null;
+  const r = await handleMessage({ jsonrpc: '2.0', id: 10, method: 'tools/call', params: { name: 'request_connections', arguments: { services: ['Jira', 'Figma'] } } },
+    async q => { got = q; return 'Connected: Jira. Skipped: Figma.'; });
+  assert.deepEqual(got, { kind: 'connections', services: ['Jira', 'Figma'] });
+  assert.equal(r.result.content[0].text, 'Connected: Jira. Skipped: Figma.');
 });
 await check('tools/call asks and returns the answer as text', async () => {
   let got = null;
   const r = await handleMessage({ jsonrpc: '2.0', id: 4, method: 'tools/call', params: { name: 'ask_user', arguments: { question: 'Which flavour?', options: ['dev', 'prod'], multi: false } } },
     async q => { got = q; return 'dev'; });
-  assert.deepEqual(got, { question: 'Which flavour?', options: ['dev', 'prod'], multi: false });
+  assert.deepEqual(got, { kind: 'ask', question: 'Which flavour?', options: ['dev', 'prod'], multi: false });
   assert.equal(r.result.content[0].text, 'dev');
 });
 await check('a skipped question tells the agent to use the default, not wait', async () => {
-  const r = await handleMessage({ jsonrpc: '2.0', id: 5, method: 'tools/call', params: { name: 'ask_user', arguments: { question: 'x' } } }, async () => '');
+  const r = await handleMessage({ jsonrpc: '2.0', id: 5, method: 'tools/call', params: { name: 'ask_user', arguments: { question: 'x', options: ['a', 'b'] } } }, async () => '');
   assert.match(r.result.content[0].text, /skipped/);
 });
 await check('if the app is unreachable the tool errors softly (the build continues)', async () => {
-  const r = await handleMessage({ jsonrpc: '2.0', id: 6, method: 'tools/call', params: { name: 'ask_user', arguments: { question: 'x' } } }, async () => { throw new Error('ECONNREFUSED'); });
+  const r = await handleMessage({ jsonrpc: '2.0', id: 6, method: 'tools/call', params: { name: 'ask_user', arguments: { question: 'x', options: ['a', 'b'] } } }, async () => { throw new Error('ECONNREFUSED'); });
   assert.equal(r.result.isError, true); assert.match(r.result.content[0].text, /openQuestions/);
 });
 

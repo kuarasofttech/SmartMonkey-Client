@@ -27,7 +27,7 @@ await check('read_file / list_dir / search / ask_user work', async () => {
   assert.match(await runTool('list_dir', { path: '.' }), /README\.md/);
   assert.match(await runTool('search', { query: 'deepLink' }), /Login\.kt:1:.*deepLink/);
   assert.equal(await runTool('ask_user', { question: 'which?', options: ['A', 'B'] }), 'A');   // menu → first option
-  assert.equal(await runTool('ask_user', { question: 'free?' }), 'typed answer');
+  assert.match(await runTool('ask_user', { question: 'free?' }), /Not asked.*options/, 'no options → bounced back, the owner is never asked');
 });
 
 await check('sandbox: read escaping the repo, and any write outside smartmonkey/*.json, are refused', async () => {
