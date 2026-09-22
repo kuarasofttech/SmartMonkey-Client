@@ -8,14 +8,17 @@ repo; a published package bundles its own `assets/`.
 
 ## Install
 
-Not on the npm registry yet — install straight from GitHub (zero runtime deps,
-Node ≥ 18):
+Zero runtime deps, Node ≥ 18. Run a one-off with `npx` (nothing to install):
 
 ```
-npm i -g github:kuarasofttech/SmartMonkey-Client
+npx smartmonkey-client app
 ```
 
-That gives you the `smartmonkey` command:
+…or install globally for a short `smartmonkey` command:
+
+```
+npm i -g smartmonkey-client
+```
 
 ```
 smartmonkey app          # run the local app: set your AI, build the blueprint in your browser
@@ -26,10 +29,10 @@ smartmonkey drivers      # which AI CLIs are available here
 smartmonkey init         # just scaffold ./smartmonkey/
 ```
 
-Prefer not to install globally? Run a one-off from the repo:
+Want the bleeding edge (tracks `main`)? Install from GitHub instead:
 
 ```
-npx github:kuarasofttech/SmartMonkey-Client app
+npm i -g github:kuarasofttech/SmartMonkey-Client
 ```
 
 ## The AI runs on your side
