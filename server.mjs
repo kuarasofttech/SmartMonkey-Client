@@ -9,6 +9,7 @@ import { join, resolve, extname, dirname, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawn } from 'node:child_process';
 import { makeWebAsk, answerAsk, makeWebConnections, setConnection, startConnections } from './webask.mjs';
+import { makePopTerminalRunCli } from './terminal.mjs';
 import { makeSecrets } from './secrets.mjs';
 import * as embed from './embed.mjs';
 import { DRIVERS, detectDrivers as defaultDetectDrivers } from './drivers.mjs';
@@ -23,17 +24,33 @@ const readBody = req => new Promise((res) => { let b = ''; req.on('data', c => {
 const sendJson = (res, obj, code = 200) => { res.writeHead(code, { 'content-type': 'application/json' }); res.end(JSON.stringify(obj)); };
 const writeSse = (res, ev) => res.write(`event: ${ev.type}\ndata: ${JSON.stringify(ev.data)}\n\n`);
 
-function defaultRunCli({ driver, prompt, cwd, onDone, onError }) {
+// Run the logged-in CLI in the terminal the app was launched from (the original
+// behavior; the fallback when we can't pop a window).
+function inheritRunCli({ driver, prompt, cwd, onDone, onError }) {
   const child = spawn(driver.bin, [prompt], { stdio: 'inherit', cwd });
   child.on('exit', () => onDone());
   child.on('error', e => onError(e));
+  return { launched: true, inTerminal: true };
+}
+
+const popRunCli = makePopTerminalRunCli();
+
+// Default: pop a NEW terminal window for the interview so a double-clicked launch
+// still gets a real TTY; fall back to the launching terminal when we can't
+// (unknown platform terminal, or SMARTMONKEY_TERMINAL=inherit).
+function defaultRunCli(opts) {
+  if (process.env.SMARTMONKEY_TERMINAL !== 'inherit') {
+    try { return popRunCli(opts); }
+    catch (e) { if (e.code !== 'UNSUPPORTED') { opts.onError(e); return { launched: false }; } }
+  }
+  return inheritRunCli(opts);
 }
 
 export function createApp({ cwd = process.cwd(), secrets = makeSecrets(), modelFactory,
   detectDrivers = defaultDetectDrivers, runCli = defaultRunCli } = {}) {
   const KIT = join(resolve(cwd), 'smartmonkey');
   const make = modelFactory || ((provider, model, key) => embed.PROVIDERS[provider].make(key, model));
-  const session = { status: 'idle', running: false, error: null, events: [], clients: new Set(), pendingAsk: null, pendingConnections: null, ai: { provider: null, model: null }, key: null, mode: 'embedded', driver: null };
+  const session = { status: 'idle', running: false, error: null, events: [], clients: new Set(), pendingAsk: null, pendingConnections: null, cliCancel: null, ai: { provider: null, model: null }, key: null, mode: 'embedded', driver: null };
 
   const emit = (type, data) => { const ev = { type, data }; session.events.push(ev); for (const r of session.clients) writeSse(r, ev); };
   const isDriverReady = () => session.driver && detectDrivers().some(d => d.id === session.driver);
@@ -93,12 +110,15 @@ export function createApp({ cwd = process.cwd(), secrets = makeSecrets(), modelF
         const d = DRIVERS.find(x => x.id === session.driver);
         if (!d || !detectDrivers().some(x => x.id === d.id)) return sendJson(res, { error: 'selected CLI not available — choose a logged-in CLI' }, 400);
         session.running = true; session.status = 'running'; session.error = null; session.events = []; session.pendingAsk = null;
-        emit('text', `Running ${d.label} in the terminal where you started \`smartmonkey app\` — answer its questions there.`);
-        runCli({
+        const handle = runCli({
           driver: d, prompt: PROMPT(), cwd,
-          onDone: () => { session.running = false; session.status = 'done'; emit('done', { blueprint: existsSync(join(KIT, 'blueprint.json')) }); },
-          onError: e => { session.running = false; session.status = 'error'; session.error = e.message; emit('error', { message: e.message }); },
+          onDone: () => { session.cliCancel = null; session.running = false; session.status = 'done'; emit('done', { blueprint: existsSync(join(KIT, 'blueprint.json')) }); },
+          onError: e => { session.cliCancel = null; session.running = false; session.status = 'error'; session.error = e.message; emit('error', { message: e.message }); },
         });
+        session.cliCancel = handle && handle.cancel ? handle.cancel : null;
+        emit('text', handle && handle.inTerminal
+          ? `Running ${d.label} in the terminal where you started \`smartmonkey app\` — answer its questions there.`
+          : `A terminal window is opening to run ${d.label} — answer its questions there, then come back here.`);
         return sendJson(res, { ok: true }, 202);
       }
 
@@ -146,6 +166,7 @@ export function createApp({ cwd = process.cwd(), secrets = makeSecrets(), modelF
     if (path === '/api/stop' && method === 'POST') {
       if (session.pendingAsk) answerAsk(session, session.pendingAsk.id, '');   // unblock a waiting ask
       if (session.pendingConnections) { const p = session.pendingConnections; session.pendingConnections = null; p.resolve('The user stopped the run at the connect step.'); }
+      if (session.cliCancel) { session.cliCancel(); session.cliCancel = null; session.running = false; }   // stop watching a popped-terminal interview
       session.status = 'idle';
       // best-effort: no mid-turn abort; `running` stays set until the live loop settles, so a new generate is refused until then
       return sendJson(res, { ok: true });
