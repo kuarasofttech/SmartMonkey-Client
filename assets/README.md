@@ -9,27 +9,37 @@ machine — only `blueprint.json` does.**
 
 | File | What it is |
 |------|------------|
-| `smartmonkey-blueprint.md` | The prompt. Run it with your own AI coding agent (Claude Code, Cursor, Codex, Gemini CLI — any frontier model), inside your repo. |
+| `builder-prompt.md` | The prompt that builds the blueprint. The SmartMonkey app runs it for you; or run it yourself with your own AI coding agent (Claude Code, Cursor, Codex, Gemini CLI — any frontier model), inside your repo. |
 | `view.html` | A local viewer + case editor. Read the blueprint (what you deliver to us), and view/edit/add test cases and download `cases.json`. Nothing is uploaded. |
 | `blueprint.json` | Produced by the prompt. The one file you upload to SmartMonkey. |
 | `cases.json` | Produced too, IF you keep the optional last section of the prompt — your test cases, converted or drafted. Import it in SmartMonkey. |
 
 ## How to use it
 
+**Easiest — the SmartMonkey app.** In your repo, run:
+
+```
+npx smartmonkey-client app
+```
+
+It opens in your browser, interviews you, builds `smartmonkey/blueprint.json`, and
+opens the viewer for you — no server to start, nothing else to install. If you
+prefer the manual route, the steps below still work.
+
 1. Drop this `smartmonkey/` folder at the root of the repo you want to test, and
    commit it.
 2. Open your repo in your AI coding agent and give it the contents of
-   `smartmonkey-blueprint.md`. It **starts by interviewing you** — a few numbered
+   `builder-prompt.md`. It **starts by interviewing you** — a few numbered
    questions (where your test cases live, how to reach them, whether to generate
    `cases.json` now) — then reads your code and writes `smartmonkey/blueprint.json`.
    - Say **yes** to generating cases and it also writes `smartmonkey/cases.json`
      (converting your existing tests — from the repo or Jira/TestRail/Zephyr/qTest —
      or drafting new ones). Say **no** and SmartMonkey generates cases for you later.
    - Running headless (CI)? It takes safe defaults instead of asking.
-3. **See what you're delivering:** open `view.html`.
-   - Easiest: run `python3 -m http.server` in this folder and open
-     `http://localhost:8000/view.html` — it loads `blueprint.json` automatically.
-   - Or just double-click `view.html` and drag `blueprint.json` onto it.
+3. **See what you're delivering:** open the viewer — no local web server needed.
+   - With the app installed, run `smartmonkey view` in this folder; it serves the
+     viewer and loads `blueprint.json` automatically.
+   - No install? Just double-click `view.html` and drag `blueprint.json` onto it.
    Nothing is uploaded; the page reads the file in your browser only.
 4. Upload `blueprint.json` to SmartMonkey. If you generated `cases.json`, import it there
    too (Test cases → Import JSON → choose file).

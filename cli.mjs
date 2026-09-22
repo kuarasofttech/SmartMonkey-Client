@@ -31,8 +31,8 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const BUNDLED = existsSync(join(__dirname, 'assets'));
 const ASSETS = BUNDLED ? join(__dirname, 'assets') : resolve(__dirname, '../src/assets/blueprint-kit');
 const PROMPT_SRC = BUNDLED
-  ? join(ASSETS, 'smartmonkey-blueprint.md')
-  : resolve(__dirname, '../src/assets/blueprint-prompt/smartmonkey-blueprint.md');
+  ? join(ASSETS, 'builder-prompt.md')
+  : resolve(__dirname, '../src/assets/blueprint-prompt/builder-prompt.md');
 
 const KIT_DIR = resolve(process.cwd(), 'smartmonkey');
 const args = process.argv.slice(2);
@@ -42,7 +42,7 @@ const opt = name => { const i = args.indexOf('--' + name); return i >= 0 ? args[
 
 // ── scaffold ─────────────────────────────────────────────────────────────────
 const KIT_FILES = [
-  { from: PROMPT_SRC, to: 'smartmonkey-blueprint.md' },
+  { from: PROMPT_SRC, to: 'builder-prompt.md' },
   { from: join(ASSETS, 'view.html'), to: 'view.html' },
   { from: join(ASSETS, 'smartmonkey-check.mjs'), to: 'smartmonkey-check.mjs' },
   { from: join(ASSETS, 'README.md'), to: 'README.md' },
@@ -54,7 +54,7 @@ function scaffold() {
     writeFileSync(join(KIT_DIR, f.to), readFileSync(f.from));   // refresh tool files; never touches blueprint.json/cases.json
   }
 }
-function ensureScaffold() { if (!existsSync(join(KIT_DIR, 'smartmonkey-blueprint.md'))) scaffold(); }
+function ensureScaffold() { if (!existsSync(join(KIT_DIR, 'builder-prompt.md'))) scaffold(); }
 
 // ── serve the viewer/editor ──────────────────────────────────────────────────
 const MIME = { '.html': 'text/html; charset=utf-8', '.json': 'application/json', '.mjs': 'text/javascript', '.js': 'text/javascript', '.css': 'text/css', '.md': 'text/markdown; charset=utf-8' };
@@ -92,7 +92,7 @@ function cmdDrivers() {
 
 async function cmdRun() {
   ensureScaffold();
-  const prompt = readFileSync(join(KIT_DIR, 'smartmonkey-blueprint.md'), 'utf8');
+  const prompt = readFileSync(join(KIT_DIR, 'builder-prompt.md'), 'utf8');
   const { resolveProvider } = await import('./embed.mjs');
 
   // Pick the driver. Explicit --key/--provider ⇒ embedded (their API key). Else a
@@ -123,7 +123,7 @@ function runViaCli(prompt, forced, found) {
   const child = spawn(driver.bin, [prompt], { stdio: 'inherit', cwd: process.cwd() });
   child.on('exit', () => existsSync(join(KIT_DIR, 'blueprint.json'))
     ? (console.log('\nProfiling done. Opening the editor to review + edit before you upload…'), serve(Number(opt('port')) || 8899))
-    : console.log('\nNo blueprint.json was written. Re-run, or open smartmonkey/smartmonkey-blueprint.md yourself.'));
+    : console.log('\nNo blueprint.json was written. Re-run, or open smartmonkey/builder-prompt.md yourself.'));
   child.on('error', e => { console.error(`could not launch ${driver.bin}: ${e.message}`); process.exit(2); });
 }
 

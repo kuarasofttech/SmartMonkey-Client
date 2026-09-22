@@ -16,7 +16,7 @@ import { APP_ID } from './lock.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ASSETS = existsSync(join(__dirname, 'assets')) ? join(__dirname, 'assets') : resolve(__dirname, '../src/assets/blueprint-kit');
-const PROMPT = () => readFileSync(join(ASSETS, 'smartmonkey-blueprint.md'), 'utf8');
+const PROMPT = () => readFileSync(join(ASSETS, 'builder-prompt.md'), 'utf8');
 const MIME = { '.html': 'text/html; charset=utf-8', '.json': 'application/json', '.mjs': 'text/javascript', '.js': 'text/javascript', '.css': 'text/css', '.md': 'text/markdown; charset=utf-8' };
 
 const readBody = req => new Promise((res) => { let b = ''; req.on('data', c => { if (b.length <= 1_000_000) b += c; }); req.on('end', () => { try { res(b ? JSON.parse(b) : {}); } catch { res({}); } }); });
