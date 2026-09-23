@@ -224,31 +224,34 @@
   .side-foot .privacy { display:flex; align-items:flex-start; margin:0; border-radius:10px; font-size:12px; line-height:1.45; }
   .side-foot .privacy .dot { margin-top:4px; }
 
-  .ws { min-width:0; height:100vh; display:flex; flex-direction:column; gap:16px; padding:22px 26px 0; overflow:hidden; }
+  .ws { min-width:0; height:100vh; display:flex; flex-direction:column; gap:16px; padding:22px 32px 0; overflow-y:auto; }
   .ws > .card { margin:0; flex:none; }
-  .ws > .panel, .ws > #buildPanel { max-height:55vh; overflow-y:auto; }
+  .ws > .panel, .ws > #buildPanel { flex:none; }
+  .tabs-wrap { flex:none; display:flex; flex-direction:column; }
+  .tabs { position:sticky; top:-22px; z-index:2; display:flex; align-items:flex-end; gap:4px; margin:0 -32px; padding:6px 32px 0; border-bottom:1px solid var(--line); background:var(--paper); }
+  .tab { margin:0 0 -1px; padding:10px 16px; border:1px solid transparent; border-bottom:0; border-radius:8px 8px 0 0; background:none; color:var(--slate); font:inherit; font-size:15px; font-weight:600; cursor:pointer; box-shadow:none; }
+  .tab:hover { color:var(--ink); filter:none; }
+  .tab[aria-selected="true"] { color:var(--ink); background:var(--surface); border-color:var(--line); }
+  .tab-n { margin-left:6px; padding:1px 7px; border-radius:5px; background:var(--brand-soft); color:var(--brand); font-size:12px; font-weight:700; }
+  .tab-link { margin:0 0 10px auto; font-size:13px; font-weight:600; }
+  .pane { padding:22px 0 28px; }
+  #paneAnswers { max-width:860px; }
+  .pane-intro { margin:0 0 18px; }
+  #paneLog .logbox { max-height:none; }
+  #paneAnswers .rebuild-bar { background:var(--paper); margin:18px 0 0; padding:14px 0; }
   .panel-head { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:4px; }
   .ws-head { display:flex; align-items:center; justify-content:space-between; gap:16px; flex-wrap:wrap; flex:none; }
   .ws-title { min-width:0; }
   .ws-title h2 { margin:0; font-family:var(--serif); font-size:26px; font-weight:600; letter-spacing:-.02em; line-height:1.2; }
   .ws-head .bp-meta { flex-basis:auto; margin:2px 0 0; }
-  .cols { flex:1; min-height:0; display:grid; grid-template-columns:minmax(340px,5fr) minmax(0,7fr); gap:20px; }
-  .col { min-height:0; overflow-y:auto; display:flex; flex-direction:column; gap:16px; scrollbar-gutter:stable; }
-  .col::after { content:''; flex:none; height:12px; }   /* breathing room at the end, without lifting the sticky Rebuild bar off the bottom edge */
-  .col > .card { margin:0; }
-  .col-h { margin:0 0 12px; font-size:16px; font-weight:700; letter-spacing:-.01em; }
-  .col-answers .qa-q { font-size:14px; }
-  .bp-pane-head { display:flex; align-items:baseline; justify-content:space-between; gap:12px; }
-  .bp-pane-head a { font-size:13px; font-weight:600; }
 
   @media (max-width:1000px) {
+    .tabs { top:0; margin:0 -16px; padding:6px 16px 0; overflow-x:auto; }
+    .tab-link { display:none; }
     .shell { grid-template-columns:1fr; }
     .side { position:static; height:auto; border-right:0; border-bottom:1px solid var(--line); gap:18px; padding:18px 16px; }
     .side-foot { margin-top:0; }
     .ws { height:auto; overflow:visible; padding:18px 16px 40px; }
-    .ws > .panel, .ws > #buildPanel { max-height:none; }
-    .cols { grid-template-columns:1fr; }
-    .col { overflow:visible; }
   }
 </style>
 </head>
@@ -361,28 +364,33 @@
       </div>
     </section>
 
-    <!-- The two things a tester works between: their answers, and what those answers produced. -->
-    <div class="cols hide" id="cols">
-      <div class="col col-answers">
-        <section class="card" id="secAnswers">
-          <h2 class="col-h">Answers</h2>
-          <div id="answers"></div>
-          <div class="rebuild-bar hide" id="rebuildBar">
-            <span class="status" id="rebuildNote"></span>
-            <button class="ghost hide" id="resetAnswers">Undo changes</button>
-            <button id="rebuild">Rebuild</button>
-          </div>
-        </section>
-        <div id="bpConns"></div>
-        <details class="card sec" id="secLog"><summary>Build log</summary><div id="histLog" class="logbox"></div></details>
+    <!-- One thing at a time: the blueprint, the answers that shaped it, or how the build went. -->
+    <div class="tabs-wrap hide" id="cols">
+      <div class="tabs" role="tablist" aria-label="Blueprint views">
+        <button role="tab" class="tab" id="tabBlueprint" data-pane="paneBlueprint" aria-selected="true">Blueprint</button>
+        <button role="tab" class="tab" id="tabAnswers" data-pane="paneAnswers" aria-selected="false">Your answers <span class="tab-n hide" id="changedN"></span></button>
+        <button role="tab" class="tab" id="tabLog" data-pane="paneLog" aria-selected="false">Build log</button>
+        <a class="tab-link" id="fullView" href="#" target="_blank">Open in its own tab</a>
       </div>
-      <div class="col col-blueprint">
-        <section class="bp-pane" id="secBlueprint">
-          <div class="bp-pane-head"><h2 class="col-h">Blueprint</h2><a id="fullView" href="#" target="_blank">Open in its own tab</a></div>
+      <section class="pane" id="paneBlueprint" role="tabpanel" aria-labelledby="tabBlueprint">
+        <div id="secBlueprint">
           <iframe id="viewFrame" title="Blueprint" scrolling="no"></iframe>
           <p class="status hide" id="noBp"></p>
-        </section>
-      </div>
+        </div>
+      </section>
+      <section class="pane hide" id="paneAnswers" role="tabpanel" aria-labelledby="tabAnswers">
+        <p class="sub pane-intro">The questions this build asked and what you picked. Change any of them and rebuild: SmartMonkey updates this blueprint for what changed.</p>
+        <div id="secAnswers"><div id="answers"></div></div>
+        <div id="bpConns"></div>
+        <div class="rebuild-bar hide" id="rebuildBar">
+          <span class="status" id="rebuildNote"></span>
+          <button class="ghost hide" id="resetAnswers">Undo changes</button>
+          <button id="rebuild">Rebuild</button>
+        </div>
+      </section>
+      <section class="pane hide" id="paneLog" role="tabpanel" aria-labelledby="tabLog">
+        <div id="secLog"><div id="histLog" class="logbox"></div></div>
+      </section>
     </div>
   </main>
 </div>
@@ -877,7 +885,7 @@ function renderAnswers(events, m, ownerAnswers) {
   ANS = list.map(x => ({ ...x, orig: [...x.picked] }));
   if (!ANS.length) {
     box.appendChild(el('p', 'status', m.imported ? 'This blueprint was made before SmartMonkey recorded answers.' : 'No questions were answered in this build.'));
-    $('rebuildBar').classList.add('hide');
+    $('rebuildBar').classList.add('hide'); $('changedN').classList.add('hide');
     return;
   }
   const editable = !!m.counts;   // a build without a blueprint has nothing to rebuild on
@@ -931,7 +939,16 @@ function syncRebuild() {
   $('rebuild').textContent = n ? 'Rebuild with these answers' : 'Rebuild';
   $('rebuild').disabled = RUNNING;
   $('resetAnswers').classList.toggle('hide', !n);
+  $('changedN').textContent = n ? `${n} changed` : ''; $('changedN').classList.toggle('hide', !n);
 }
+// Tabs: one view at a time. The choice is remembered (per browser) — a convenience only.
+function showTab(id) {
+  for (const t of document.querySelectorAll('.tab')) { const on = t.id === id; t.setAttribute('aria-selected', on ? 'true' : 'false'); $(t.dataset.pane).classList.toggle('hide', !on); }
+  try { localStorage.setItem('sm-tab', id); } catch {}
+}
+for (const t of document.querySelectorAll('.tab')) t.onclick = () => showTab(t.id);
+try { const t = localStorage.getItem('sm-tab'); if (t && $(t)) showTab(t); } catch {}
+
 $('rebuild').onclick = () => startBuild({ basedOn: SELECTED, reviewed: ANS.map(a => ({ question: a.question, options: a.options, multi: a.multi, picked: a.picked, changed: isChanged(a) })) });
 $('resetAnswers').onclick = () => showBlueprint(SELECTED);
 
