@@ -164,3 +164,16 @@ export function runBlock(previous = []) {
     '',
   ].join('\n');
 }
+
+/** Prepended when a build starts FROM an older one ("build on this"). */
+export function basedOnBlock(meta = {}) {
+  const when = meta.finishedAt || meta.startedAt || 'an earlier build';
+  return [
+    '# This build starts from a previous blueprint',
+    '',
+    `\`smartmonkey/blueprint.json\` already holds the blueprint from the build of ${when}. Treat it as the starting point: keep what is still right, correct what is wrong, fill the gaps — and re-check it against the repo rather than copying it. Write the result back to the same file.`,
+    '',
+    '---',
+    '',
+  ].join('\n');
+}

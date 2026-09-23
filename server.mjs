@@ -12,11 +12,12 @@ import { randomBytes } from 'node:crypto';
 import { makeWebAsk, answerAsk, makeWebConnections, setConnection, startConnections } from './webask.mjs';
 import { makePopTerminalRunCli } from './terminal.mjs';
 import { makeHeadlessRunCli } from './headless.mjs';
-import { QUESTIONS, normalizeAnswers, servicesFor, answersBlock, runBlock } from './interview.mjs';
+import { QUESTIONS, normalizeAnswers, servicesFor, answersBlock, runBlock, basedOnBlock } from './interview.mjs';
 import { makeSecrets } from './secrets.mjs';
 import * as embed from './embed.mjs';
 import { DRIVERS, detectDrivers as defaultDetectDrivers } from './drivers.mjs';
 import { APP_ID } from './lock.mjs';
+import { makeBuildStore } from './buildstore.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ASSETS = existsSync(join(__dirname, 'assets')) ? join(__dirname, 'assets') : resolve(__dirname, '../src/assets/blueprint-kit');
@@ -57,6 +58,8 @@ export function createApp({ cwd = process.cwd(), secrets = makeSecrets(), modelF
   detectDrivers = defaultDetectDrivers, runCli = defaultRunCli, openBrowser = () => {}, askPollMs = 25_000 } = {}) {
   const KIT = join(resolve(cwd), 'smartmonkey');
   const INTERVIEW = join(KIT, 'interview.json');
+  const builds = makeBuildStore(KIT);
+  builds.recover();   // a build still marked running from a previous app session did not finish
   let port = null;   // set by listen(); used to bring the browser back after a terminal-window run
   const loadAnswers = () => { try { return JSON.parse(readFileSync(INTERVIEW, 'utf8')); } catch { return null; } };
   const saveAnswers = a => { try { mkdirSync(KIT, { recursive: true }); writeFileSync(INTERVIEW, JSON.stringify(a, null, 2)); } catch {} };
@@ -76,9 +79,9 @@ export function createApp({ cwd = process.cwd(), secrets = makeSecrets(), modelF
   let agentAskN = 0, askChain = Promise.resolve();   // one question on screen at a time
   const releaseAgentAsks = () => { for (const e of agentAsks.values()) if (e.answer === undefined) { e.answer = ''; e.waiters.splice(0).forEach(w => w()); } };
   const make = modelFactory || ((provider, model, key) => embed.PROVIDERS[provider].make(key, model));
-  const session = { status: 'idle', running: false, error: null, events: [], clients: new Set(), pendingAsk: null, pendingConnections: null, cliCancel: null, gen: 0, webask: null, ai: { provider: null, model: null }, key: null, mode: 'embedded', driver: null };
+  const session = { status: 'idle', running: false, error: null, events: [], clients: new Set(), pendingAsk: null, pendingConnections: null, cliCancel: null, gen: 0, webask: null, buildId: null, ai: { provider: null, model: null }, key: null, mode: 'embedded', driver: null };
 
-  const emit = (type, data) => { const ev = { type, data }; session.events.push(ev); for (const r of session.clients) writeSse(r, ev); };
+  const emit = (type, data) => { const ev = { type, data }; session.events.push(ev); if (session.buildId) builds.appendEvent(session.buildId, ev); for (const r of session.clients) writeSse(r, ev); };
   const isDriverReady = () => session.driver && detectDrivers().some(d => d.id === session.driver);
   const ready = () => session.mode === 'cli' ? !!isDriverReady() : !!(session.ai.provider && session.key);
   const driversPayload = () => { const detected = detectDrivers(); return DRIVERS.map(d => ({ id: d.id, label: d.label, available: detected.some(x => x.id === d.id) })); };
@@ -89,8 +92,8 @@ export function createApp({ cwd = process.cwd(), secrets = makeSecrets(), modelF
     createReadStream(file).pipe(res);
   };
 
-  const finish = () => emit('done', { blueprint: existsSync(join(KIT, 'blueprint.json')) });
-  const fail = e => { session.running = false; session.status = 'error'; session.error = e.message; emit('error', { message: e.message }); };
+  const finish = () => { emit('done', { blueprint: existsSync(join(KIT, 'blueprint.json')), build: session.buildId }); builds.finish(session.buildId, 'done'); };
+  const fail = e => { session.running = false; session.status = 'error'; session.error = e.message; emit('error', { message: e.message }); builds.finish(session.buildId, 'error', { error: e.message }); };
 
   function launchEmbedded(prompt, gen) {
     const live = () => gen === session.gen;
@@ -196,6 +199,21 @@ export function createApp({ cwd = process.cwd(), secrets = makeSecrets(), modelF
       return entry.answer === undefined ? sendJson(res, { pending: true }) : sendJson(res, { answer: entry.answer });
     }
 
+    if (path === '/api/builds' && method === 'GET') {
+      return sendJson(res, { builds: builds.list() });
+    }
+    const bm = path.match(/^\/api\/builds\/([^/]+)(\/current)?$/);
+    if (bm) {
+      const id = decodeURIComponent(bm[1]);
+      try {
+        if (method === 'GET' && !bm[2]) return sendJson(res, builds.get(id));
+        if (method === 'POST' && bm[2]) { if (session.running) return sendJson(res, { error: 'a build is running' }, 409); builds.makeCurrent(id); return sendJson(res, { ok: true }); }
+        if (method === 'DELETE' && !bm[2]) { builds.remove(id); return sendJson(res, { ok: true }); }
+      } catch (e) {
+        return sendJson(res, { error: e.message }, /unknown build/.test(e.message) ? 404 : 409);
+      }
+    }
+
     if (path === '/api/interview' && method === 'GET') {
       return sendJson(res, { questions: QUESTIONS, saved: loadAnswers() });
     }
@@ -206,6 +224,8 @@ export function createApp({ cwd = process.cwd(), secrets = makeSecrets(), modelF
       // With answers, the interview already happened in the browser; without them
       // (older clients, the tests' agent-driven path) the agent interviews itself.
       const answers = body.answers ? normalizeAnswers(body.answers) : null;
+      const basedOn = typeof body.basedOn === 'string' && body.basedOn ? body.basedOn : null;
+      if (basedOn && !builds.list().some(b => b.id === basedOn)) return sendJson(res, { error: 'unknown build to start from' }, 400);
 
       let driver = null;
       if (session.mode === 'cli') {
@@ -218,8 +238,11 @@ export function createApp({ cwd = process.cwd(), secrets = makeSecrets(), modelF
       session.running = true; session.status = 'running'; session.error = null; session.events = [];
       session.pendingAsk = null; session.pendingConnections = null;
       const pageAsk = makeWebAsk(session, emit);
-      session.webask = async (q, o, m) => { const a = await pageAsk(q, o, m); recordOwnerAnswer(q, a); return a; };
+      session.webask = async (q, o, m) => { const a = await pageAsk(q, o, m); recordOwnerAnswer(q, a); emit('answered', { question: q, answer: a }); return a; };
       agentAsks.clear();
+      // Every build is kept: a clean start sets the current blueprint aside; "build on" places an older one.
+      builds.prepareStart({ basedOn });
+      session.buildId = builds.create({ driver: driver ? driver.id : session.ai.provider, basedOn });
       if (answers) saveAnswers(answers);
 
       // Tools the answers draw on are connected (or skipped) BEFORE anything is built.
@@ -229,7 +252,8 @@ export function createApp({ cwd = process.cwd(), secrets = makeSecrets(), modelF
         if (gen !== session.gen) return;   // stopped while waiting at the connect panel
         const connections = summary && summary.replace(/^The user finished the connect step\.\s*/, '').replace(/\s*Now build the blueprint\.$/, '');
         // Pre-supplied answers (API callers) skip the interview; otherwise it happens during the run.
-        const prompt = (answers ? answersBlock(answers, connections) : runBlock(loadOwnerAnswers())) + PROMPT();
+        const start = basedOn ? basedOnBlock(builds.get(basedOn).meta) : '';
+        const prompt = (answers ? answersBlock(answers, connections) : runBlock(loadOwnerAnswers())) + start + PROMPT();
         if (driver) launchCli(driver, prompt, gen); else launchEmbedded(prompt, gen);
       });
       return sendJson(res, { ok: true }, 202);
@@ -269,7 +293,7 @@ export function createApp({ cwd = process.cwd(), secrets = makeSecrets(), modelF
       if (session.pendingConnections) { const p = session.pendingConnections; session.pendingConnections = null; p.resolve('The user stopped the run at the connect step.'); }
       if (session.cliCancel) { session.cliCancel(); session.cliCancel = null; }   // kill a headless run / stop watching a terminal window
       releaseAgentAsks();
-      if (wasRunning) { session.running = false; session.status = 'stopped'; emit('stopped', {}); }
+      if (wasRunning) { session.running = false; session.status = 'stopped'; emit('stopped', {}); builds.finish(session.buildId, 'stopped'); }
       return sendJson(res, { ok: true });
     }
 

@@ -100,6 +100,20 @@
   #doneMsg { margin:14px 0 0; }
   a.review { display:inline-block; padding:10px 16px; border-radius:8px; background:var(--brand); color:var(--on-brand); font-weight:600; }
   a.review:hover { text-decoration:none; filter:brightness(1.05); }
+  .last { font-size:14px; color:var(--slate); margin:0 0 12px; }
+  .last b { color:var(--ink); }
+  h2.plain { font-size:16px; font-weight:700; margin:0; letter-spacing:-.01em; }
+  .build-row { display:flex; align-items:center; gap:14px; padding:12px 0; border-top:1px solid var(--line-2); }
+  .build-row:first-child { border-top:0; }
+  .b-main { flex:1; min-width:0; }
+  .b-when { font-weight:600; color:var(--ink); }
+  .b-status { font-size:12px; font-weight:600; padding:2px 8px; border-radius:999px; margin-left:8px; background:var(--line-2); color:var(--slate); }
+  .b-status.done { background:var(--brand-soft); color:var(--ok); }
+  .b-status.error, .b-status.interrupted { color:var(--bad); }
+  .b-current { font-size:12px; font-weight:700; color:var(--brand); margin-left:8px; }
+  .b-counts { font-size:13px; color:var(--slate); margin-top:2px; }
+  .b-acts { display:flex; gap:6px; flex-wrap:wrap; justify-content:flex-end; }
+  .b-acts button { padding:6px 11px; font-size:13px; }
   .hide { display:none; }
   @media (prefers-reduced-motion: reduce) { * { transition:none !important; } }
 </style>
@@ -152,11 +166,18 @@
   <div class="card">
     <div class="step"><span class="n">2</span><h2>Build the blueprint</h2></div>
     <p class="sub">Reads your repo, then asks you a few questions about it right here, where you just click an answer, and writes <code>smartmonkey/blueprint.json</code>.</p>
+    <p id="lastBuild" class="last hide"></p>
     <div class="actions"><button id="gen" disabled>Build blueprint</button><button id="stop" class="ghost hide">Stop</button></div>
     <div id="asks"></div>
     <label style="margin-top:14px">Progress</label>
     <div id="log"></div>
-    <p id="doneMsg" class="hide"><a class="review" href="/view.html" target="_blank">Review and edit the blueprint</a></p>
+    <p id="doneMsg" class="hide"><a id="reviewLink" class="review" href="/view.html" target="_blank">Review and edit the blueprint</a></p>
+  </div>
+
+  <div class="card hide" id="historyCard">
+    <h2 class="plain">Builds</h2>
+    <p class="sub">Every build is kept. The current one is what <code>smartmonkey/blueprint.json</code> holds.</p>
+    <div id="history"></div>
   </div>
 </div>
 
@@ -247,12 +268,14 @@ const el = (tag, cls, text) => { const n = document.createElement(tag); if (cls)
 
 $('stop').onclick = async () => { $('stop').disabled = true; await api('POST', '/api/stop'); refresh(); };
 
-$('gen').onclick = async () => {
+async function startBuild(opts = {}) {
   $('log').textContent = ''; $('asks').innerHTML = ''; $('doneMsg').classList.add('hide');
-  const r = await api('POST', '/api/generate');
+  const r = await api('POST', '/api/generate', opts);
   if (r && r.error) logLine('✗ ' + r.error);
   refresh();
-};
+  loadHistory();
+}
+$('gen').onclick = () => startBuild();
 
 // A question from the build, mid-run. Answer by clicking: one click for a single
 // choice; tick and press Done for several. "Other…" opens a box only when needed.
@@ -272,7 +295,6 @@ function renderAsk(a) {
     box.querySelectorAll('button, input').forEach(x => x.disabled = true);
     await api('POST', '/api/answer', { id: a.id, answer });
     box.remove(); flagQuestion();
-    logLine(`· you answered: ${Array.isArray(answer) ? answer.join(', ') : (answer || '(skipped)')}`);
   };
   const choose = (value, pill) => {
     if (a.multi) return;                       // multi waits for Done
@@ -361,16 +383,106 @@ async function setConn(id, service, action) {
   if (r && r.status && st && st.pendingConnections) updateConnections(st.pendingConnections);
 }
 
+// One renderer for live events and for replaying a saved build. Replays only log:
+// questions and the connect panel are interactive only while a build is running.
+function showEvent(type, d, live) {
+  if (type === 'text') logLine(d);
+  else if (type === 'tool') logLine(`· ${d.name} ${d.summary || ''}`);
+  else if (type === 'answered') logLine(`· you answered: ${d.answer || '(skipped)'}`);
+  else if (type === 'ask' && live) renderAsk(d);
+  else if (type === 'connections' && live) renderConnections(d);
+  else if (type === 'done') logLine('\n✓ Done.');
+  else if (type === 'stopped') logLine('\n■ Stopped. Nothing more was built.');
+  else if (type === 'error') logLine('\n✗ ' + (d && d.message));
+}
+let liveEvents = 0;
 const es = new EventSource('/api/events');
-es.addEventListener('text', e => logLine(JSON.parse(e.data)));
-es.addEventListener('tool', e => { const d = JSON.parse(e.data); logLine(`· ${d.name} ${d.summary || ''}`); });
-es.addEventListener('ask', e => renderAsk(JSON.parse(e.data)));
-es.addEventListener('connections', e => renderConnections(JSON.parse(e.data)));
-es.addEventListener('done', e => { logLine('\n✓ Done.'); refresh(); });
-es.addEventListener('stopped', () => { $('asks').innerHTML = ''; flagQuestion(); logLine('\n■ Stopped. Nothing more was built; you can change your answers and build again.'); refresh(); });
-es.addEventListener('error', e => { try { logLine('\n✗ ' + JSON.parse(e.data).message); } catch {} });
+for (const t of ['text', 'tool', 'answered', 'ask', 'connections', 'done', 'stopped', 'error']) {
+  es.addEventListener(t, e => {
+    if (!liveEvents++) $('log').textContent = '';   // live events replace a replayed old build
+    let d; try { d = JSON.parse(e.data); } catch { d = e.data; }
+    showEvent(t, d, true);
+    if (t === 'stopped') { $('asks').innerHTML = ''; flagQuestion(); }
+    if (t === 'done' || t === 'stopped' || t === 'error') { refresh(); loadHistory(); }
+  });
+}
+
+// ---- build history ----
+const fmtWhen = iso => {
+  if (!iso) return '';
+  const d = new Date(iso), today = new Date();
+  const time = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  return d.toDateString() === today.toDateString() ? `Today ${time}` : `${d.toLocaleDateString([], { month: 'short', day: 'numeric' })}, ${time}`;
+};
+const STATUS = { done: 'Done', error: 'Failed', stopped: 'Stopped', interrupted: 'Interrupted', running: 'Running' };
+const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
+const countsText = c => c ? `${plural(c.screens, 'screen', 'screens')}, ${plural(c.flows, 'flow', 'flows')}, ${plural(c.openQuestions, 'open question', 'open questions')}` : '';
+const viewUrl = id => `/view.html?src=builds/${encodeURIComponent(id)}/blueprint.json`;
+let BUILDS = [];
+
+async function loadHistory() {
+  const r = await api('GET', '/api/builds');
+  BUILDS = (r && r.builds) || [];
+  $('historyCard').classList.toggle('hide', !BUILDS.length);
+  $('gen').textContent = BUILDS.length ? 'New build' : 'Build blueprint';
+  const latest = BUILDS[0];
+  if (latest) {
+    const lb = $('lastBuild'); lb.classList.remove('hide'); lb.innerHTML = '';
+    lb.appendChild(el('b', null, 'Last build: ')); lb.appendChild(document.createTextNode(`${fmtWhen(latest.finishedAt || latest.startedAt)}, ${(STATUS[latest.status] || latest.status).toLowerCase()}${latest.counts ? ', ' + countsText(latest.counts) : ''}.`));
+    const cur = BUILDS.find(b => b.current);
+    if (cur) { $('reviewLink').href = viewUrl(cur.id); $('doneMsg').classList.remove('hide'); }
+  }
+  renderHistory();
+  return latest;
+}
+
+function renderHistory() {
+  const box = $('history'); box.innerHTML = '';
+  const running = BUILDS.some(b => b.status === 'running');
+  for (const b of BUILDS) {
+    const row = el('div', 'build-row');
+    const main = el('div', 'b-main');
+    main.appendChild(el('span', 'b-when', fmtWhen(b.startedAt)));
+    main.appendChild(el('span', 'b-status ' + b.status, STATUS[b.status] || b.status));
+    if (b.current) main.appendChild(el('span', 'b-current', 'Current'));
+    const extra = b.imported ? 'Imported from before history was kept' : b.basedOn ? 'Built on an earlier build' : b.noBlueprint ? 'Finished without writing a blueprint' : '';
+    main.appendChild(el('div', 'b-counts', [countsText(b.counts), extra].filter(Boolean).join('. ')));
+    row.appendChild(main);
+    const acts = el('div', 'b-acts');
+    const has = !!b.counts;
+    if (has) { const o = el('button', 'ghost', 'Open'); o.onclick = () => window.open(viewUrl(b.id), '_blank'); acts.appendChild(o); }
+    if (has && !running) { const on = el('button', 'ghost', 'Build on this'); on.onclick = () => startBuild({ basedOn: b.id }); acts.appendChild(on); }
+    if (has && !b.current && !running) { const mc = el('button', 'ghost', 'Make current'); mc.onclick = async () => { await api('POST', `/api/builds/${encodeURIComponent(b.id)}/current`); loadHistory(); }; acts.appendChild(mc); }
+    if (b.status !== 'running') {
+      const del = el('button', 'ghost', 'Delete');
+      del.onclick = () => {   // confirm inline — no browser dialog
+        acts.innerHTML = ''; acts.appendChild(el('span', 'b-counts', b.current ? 'Delete the current build?' : 'Delete this build?'));
+        const yes = el('button', null, 'Delete'); yes.onclick = async () => { await api('DELETE', `/api/builds/${encodeURIComponent(b.id)}`); loadHistory(); };
+        const no = el('button', 'ghost', 'Keep'); no.onclick = renderHistory;
+        acts.appendChild(yes); acts.appendChild(no);
+      };
+      acts.appendChild(del);
+    }
+    row.appendChild(acts);
+    box.appendChild(row);
+  }
+}
+
+// On open, show the last build's log when nothing is running in this session.
+async function replayLatest() {
+  const s = await api('GET', '/api/status');
+  if (s.run.status === 'running' || liveEvents) return;
+  const latest = await loadHistory();
+  if (!latest || liveEvents) return;
+  const r = await api('GET', `/api/builds/${encodeURIComponent(latest.id)}`);
+  if (!r || !r.events || liveEvents) return;
+  $('log').textContent = '';
+  logLine(`— ${fmtWhen(latest.startedAt)} build —`);
+  for (const ev of r.events) showEvent(ev.type, ev.data, false);
+}
 
 refresh();
+replayLatest();
 </script>
 </body>
 </html>

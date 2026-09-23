@@ -4,7 +4,7 @@
  *   node test/server.mjs
  */
 import { strict as assert } from 'node:assert';
-import { mkdtempSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, existsSync, mkdirSync, writeFileSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import http from 'node:http';
@@ -502,6 +502,79 @@ await check('the owner\'s answers are remembered and offered first on the next r
   assert.match(runs[1].prompt, /Last time the owner answered/);
   assert.match(runs[1].prompt, /Which build should a tester use\? → devDebug/);
   s.destroy(); app.server.close();
+});
+
+// ---- build history ------------------------------------------------------------------
+function historyApp() {
+  const cwd = mkdtempSync(join(tmpdir(), 'sm-app-'));
+  const runs = [];
+  const runCli = o => { runs.push(o); return { launched: true, headless: true, cancel() {} }; };
+  const app = createApp({ cwd, secrets: makeSecrets({ platform: 'win32' }), detectDrivers: () => [{ id: 'claude', bin: 'claude', label: 'Claude Code' }], runCli });
+  const kit = join(cwd, 'smartmonkey');
+  const writeBp = n => { mkdirSync(kit, { recursive: true }); writeFileSync(join(kit, 'blueprint.json'), JSON.stringify({ smartmonkeyBlueprint: 1, screens: Array(n).fill({}) })); };
+  return { cwd, kit, app, runs, writeBp };
+}
+
+await check('builds: a finished build is listed as current, and its progress replays after the fact', async () => {
+  const { app, runs, writeBp } = historyApp();
+  const port = await app.listen(0);
+  await req(port, 'POST', '/api/ai', { mode: 'cli', driver: 'claude' });
+  await req(port, 'POST', '/api/generate');
+  await waitFor(() => runs.length === 1);
+  runs[0].onEvent('tool', { name: 'Read', summary: 'README.md' });
+  writeBp(3); runs[0].onDone();
+  const list = (await req(port, 'GET', '/api/builds')).json.builds;
+  assert.equal(list.length, 1); assert.equal(list[0].status, 'done'); assert.equal(list[0].current, true);
+  assert.equal(list[0].counts.screens, 3);
+  const one = (await req(port, 'GET', `/api/builds/${list[0].id}`)).json;
+  assert.ok(one.events.some(e => e.type === 'tool' && e.data.summary === 'README.md'), 'progress was saved');
+  assert.ok(one.events.some(e => e.type === 'done'), 'the ending too');
+  app.server.close();
+});
+
+await check('builds: a new build starts clean; stopping it puts the current blueprint back', async () => {
+  const { kit, app, runs, writeBp } = historyApp();
+  const port = await app.listen(0);
+  await req(port, 'POST', '/api/ai', { mode: 'cli', driver: 'claude' });
+  await req(port, 'POST', '/api/generate'); await waitFor(() => runs.length === 1); writeBp(2); runs[0].onDone();
+  await req(port, 'POST', '/api/generate'); await waitFor(() => runs.length === 2);
+  assert.equal(existsSync(join(kit, 'blueprint.json')), false, 'clean start');
+  await req(port, 'POST', '/api/stop');
+  assert.equal(existsSync(join(kit, 'blueprint.json')), true, 'the current blueprint is back');
+  const list = (await req(port, 'GET', '/api/builds')).json.builds;
+  assert.deepEqual(list.map(b => b.status), ['stopped', 'done']);
+  app.server.close();
+});
+
+await check('builds: "build on" an older build places its blueprint and tells the agent to start from it', async () => {
+  const { kit, app, runs, writeBp } = historyApp();
+  const port = await app.listen(0);
+  await req(port, 'POST', '/api/ai', { mode: 'cli', driver: 'claude' });
+  await req(port, 'POST', '/api/generate'); await waitFor(() => runs.length === 1); writeBp(4); runs[0].onDone();
+  const first = (await req(port, 'GET', '/api/builds')).json.builds[0].id;
+  assert.equal((await req(port, 'POST', '/api/generate', { basedOn: 'nope' })).status, 400);
+  await req(port, 'POST', '/api/generate', { basedOn: first }); await waitFor(() => runs.length === 2);
+  assert.match(runs[1].prompt, /starts from a previous blueprint/i);
+  assert.equal(JSON.parse(readFileSync(join(kit, 'blueprint.json'), 'utf8')).screens.length, 4, 'the old blueprint is in place');
+  app.server.close();
+});
+
+await check('builds: delete the current → the previous becomes current; a running build cannot be deleted; make-current works', async () => {
+  const { kit, app, runs, writeBp } = historyApp();
+  const port = await app.listen(0);
+  await req(port, 'POST', '/api/ai', { mode: 'cli', driver: 'claude' });
+  await req(port, 'POST', '/api/generate'); await waitFor(() => runs.length === 1); writeBp(1); runs[0].onDone();
+  await req(port, 'POST', '/api/generate'); await waitFor(() => runs.length === 2); writeBp(2); runs[1].onDone();
+  const [newer, older] = (await req(port, 'GET', '/api/builds')).json.builds;
+  assert.equal((await req(port, 'POST', `/api/builds/${older.id}/current`)).status, 200);
+  assert.equal(JSON.parse(readFileSync(join(kit, 'blueprint.json'), 'utf8')).screens.length, 1);
+  assert.equal((await req(port, 'DELETE', `/api/builds/${older.id}`)).status, 200);
+  assert.equal(JSON.parse(readFileSync(join(kit, 'blueprint.json'), 'utf8')).screens.length, 2, 'the other build is current again');
+  await req(port, 'POST', '/api/generate'); await waitFor(() => runs.length === 3);
+  const running = (await req(port, 'GET', '/api/builds')).json.builds[0];
+  assert.equal((await req(port, 'DELETE', `/api/builds/${running.id}`)).status, 409);
+  assert.equal((await req(port, 'GET', '/api/builds/..%2F..%2Fetc')).status, 404);
+  app.server.close();
 });
 
 if (failures) { console.error(`\n${failures} failure(s)`); process.exit(1); }

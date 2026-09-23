@@ -463,7 +463,9 @@ function wireLoader() {
   // Works when served over http(s); file:// fetch is blocked, so fall back to the picker.
   fetch(srcName).then(r => { if (!r.ok) throw 0; return r.text(); }).then(tryLoad).catch(showLoader);
   // Also pick up a sibling cases.json if it's there (http only).
-  fetch("cases.json").then(r => { if (!r.ok) throw 0; return r.json(); }).then(loadCases).catch(() => {});
+  // …from the same folder as the blueprint, so an older build shows its own cases.
+  const dir = srcName.includes("/") ? srcName.slice(0, srcName.lastIndexOf("/") + 1) : "";
+  fetch(dir + "cases.json").then(r => { if (!r.ok) throw 0; return r.json(); }).then(loadCases).catch(() => {});
 })();
 </script>
 </body>
