@@ -855,5 +855,38 @@ await check('edits save through the API: cases and open-question answers land in
   app.server.close();
 });
 
+await check('generate test cases for a build: prompt is a cases run, existing cases kept, blueprint never replaced', async () => {
+  const cwd = mkdtempSync(join(tmpdir(), 'sm-app-'));
+  const kit = join(cwd, 'smartmonkey'); mkdirSync(kit, { recursive: true });
+  const BP = JSON.stringify({ smartmonkeyBlueprint: 1, screens: [{}], flows: [] });
+  writeFileSync(join(kit, 'blueprint.json'), BP);
+  let got = null;
+  const runCli = ({ prompt, onDone }) => {
+    got = prompt;
+    writeFileSync(join(kit, 'blueprint.json'), 'SCRIBBLED');                               // the agent misbehaves
+    writeFileSync(join(kit, 'cases.json'), JSON.stringify([{ id: 'OWN-1' }, { id: 'TC-2', tags: ['area:Tagging', 'smoke'] }]));
+    setTimeout(onDone, 20); return { launched: true, headless: true };
+  };
+  const app = createApp({ cwd, secrets: makeSecrets({ platform: 'win32' }), detectDrivers: () => [{ id: 'claude', bin: 'claude', label: 'Claude Code' }], runCli });
+  const port = await app.listen(0);
+  await req(port, 'POST', '/api/ai', { mode: 'cli', driver: 'claude' });
+  const [b] = (await req(port, 'GET', '/api/builds')).json.builds;
+  await req(port, 'PUT', `/api/builds/${b.id}/cases`, { cases: [{ id: 'OWN-1' }] });
+  assert.equal((await req(port, 'POST', '/api/builds/nope/cases/generate')).status, 404);
+  assert.equal((await req(port, 'POST', `/api/builds/${b.id}/cases/generate`)).status, 202);
+  await waitFor(() => got);
+  assert.match(got, /Write the test cases for this blueprint/);
+  assert.match(got, /already holds 1 case/);
+  assert.match(got, /## Test cases/, 'the builder prompt\'s own Test cases section follows');
+  assert.doesNotMatch(got, /## First, a short interview/, 'not the whole build prompt');
+  for (let i = 0; i < 100; i++) { if ((await req(port, 'GET', '/api/status')).json.run.status !== 'running') break; await new Promise(r => setTimeout(r, 20)); }
+  assert.equal(readFileSync(join(kit, 'blueprint.json'), 'utf8'), BP, 'the blueprint in place is the build\'s own again');
+  assert.equal(readFileSync(join(kit, 'builds', b.id, 'blueprint.json'), 'utf8'), BP);
+  assert.deepEqual(JSON.parse(readFileSync(join(kit, 'builds', b.id, 'cases.json'), 'utf8')).map(c => c.id), ['OWN-1', 'TC-2']);
+  const meta = (await req(port, 'GET', `/api/builds/${b.id}`)).json.meta;
+  assert.equal(meta.cases.count, 2); assert.equal(meta.casesRun.status, 'done'); assert.equal(meta.status, 'done', 'the build itself is untouched');
+  app.server.close();
+});
+
 if (failures) { console.error(`\n${failures} failure(s)`); process.exit(1); }
 console.log('\nserver: all passed');

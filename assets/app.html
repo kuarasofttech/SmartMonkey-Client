@@ -361,6 +361,7 @@
         <p class="bp-meta" id="bpMeta"></p>
       </div>
       <div class="bp-acts" id="bpActs">
+        <button id="genCases" class="hide">Generate test cases</button>
         <button id="buildOn" class="ghost hide">Build on this</button>
         <button id="makeCurrent" class="ghost hide">Make current</button>
         <button id="deleteBp" class="ghost hide">Delete</button>
@@ -388,7 +389,7 @@
     <div class="tabs-wrap hide" id="cols">
       <div class="tabs" role="tablist" aria-label="Blueprint views">
         <button role="tab" class="tab" id="tabBlueprint" data-pane="paneBlueprint" aria-selected="true">Blueprint</button>
-        <button role="tab" class="tab" id="tabAnswers" data-pane="paneAnswers" aria-selected="false">Your answers <span class="tab-n hide" id="changedN"></span></button>
+        <button role="tab" class="tab" id="tabAnswers" data-pane="paneAnswers" aria-selected="false">Build <span class="tab-n hide" id="changedN"></span></button>
         <button role="tab" class="tab" id="tabPackage" data-pane="panePackage" aria-selected="false">Package <span class="tab-n hide" id="pkgN"></span></button>
         <button role="tab" class="tab" id="tabLog" data-pane="paneLog" aria-selected="false">Build log</button>
         <a class="tab-link" id="fullView" href="#" target="_blank">Open in its own tab</a>
@@ -400,7 +401,7 @@
         </div>
       </section>
       <section class="pane hide" id="paneAnswers" role="tabpanel" aria-labelledby="tabAnswers">
-        <p class="sub pane-intro">The questions this build asked and what you picked. Change any of them and rebuild: SmartMonkey updates this blueprint for what changed.</p>
+        <p class="sub pane-intro">How this build was made: the questions it asked and what you picked. Change any of them and rebuild — SmartMonkey updates this blueprint for what changed.</p>
         <div id="secAnswers"><div id="answers"></div></div>
         <div id="bpConns"></div>
         <div class="rebuild-bar hide" id="rebuildBar">
@@ -532,16 +533,17 @@ async function startBuild(opts = {}) {
     return;
   }
   $('log').textContent = ''; $('asks').innerHTML = ''; $('buildMascot').classList.add('hide'); $('buildClose').classList.add('hide'); $('log').classList.remove('hide');
-  $('buildSub').textContent = opts.reviewed ? 'SmartMonkey updates the blueprint for the answers you changed. It only asks if a change raises something new.' : 'SmartMonkey reads your repo, then asks you a few questions here. Just click an answer.';
-  $('buildPanel').classList.remove('hide'); $('buildTitle').textContent = opts.reviewed ? 'Rebuilding with your answers' : opts.basedOn ? 'Building on the selected blueprint' : 'Building a new blueprint';
+  $('buildSub').textContent = opts.cases ? 'SmartMonkey reads this blueprint and the files in your package, asks a question or two, and writes the test cases. The blueprint itself does not change.' : opts.reviewed ? 'SmartMonkey updates the blueprint for the answers you changed. It only asks if a change raises something new.' : 'SmartMonkey reads your repo, then asks you a few questions here. Just click an answer.';
+  $('buildPanel').classList.remove('hide'); $('buildTitle').textContent = opts.cases ? 'Writing test cases' : opts.reviewed ? 'Rebuilding with your answers' : opts.basedOn ? 'Building on the selected blueprint' : 'Building a new blueprint';
   $('empty').classList.add('hide');
   RUNNING = true; WORK.startedAt = Date.now(); WORK.activity = 'Starting up'; setWorking();
   $('buildPanel').scrollIntoView({ behavior: 'smooth', block: 'start' });
-  const r = await api('POST', '/api/generate', opts);
+  const r = opts.cases ? await api('POST', `/api/builds/${encodeURIComponent(opts.cases)}/cases/generate`) : await api('POST', '/api/generate', opts);
   if (r && r.error) logLine('✗ ' + r.error);
   refresh(); loadBlueprints(SELECTED);   // the new build shows up in the list as "Building now"
 }
 $('gen').onclick = () => startBuild();
+$('genCases').onclick = () => startBuild({ cases: SELECTED });
 $('buildClose').onclick = () => $('buildPanel').classList.add('hide');
 
 // A question from the build, mid-run. Answer by clicking: one click for a single
@@ -719,12 +721,14 @@ for (const t of ['text', 'tool', 'answered', 'ask', 'connections', 'done', 'stop
     if (t === 'done' || t === 'stopped' || t === 'error') {
       $('buildTitle').textContent = t === 'done' ? 'Build finished' : t === 'stopped' ? 'Build stopped' : 'Build failed';
       // the monkey reacts: happy when it finished, sad when it failed
-      const wrote = t === 'done' && !(d && d.blueprint === false);
-      if (t === 'done' && !wrote) $('buildTitle').textContent = 'Build finished without a blueprint';
-      $('buildSub').textContent = t === 'done' ? (wrote ? 'Your blueprint is ready — it opens below, with your answers.' : 'The build ended without writing a blueprint, so the one you had before is still current. The log below shows how far it got.') : t === 'stopped' ? 'You stopped this build. The blueprint you had before is still current.' : 'The blueprint you had before is still current. The log below says what went wrong.';
+      const casesRun = d && d.kind === 'cases';
+      const wrote = t === 'done' && (casesRun ? d.cases != null : !(d && d.blueprint === false));
+      if (t === 'done' && casesRun) $('buildTitle').textContent = wrote ? `${plural(d.cases, 'test case', 'test cases')} in this blueprint` : 'No test cases were written';
+      else if (t === 'done' && !wrote) $('buildTitle').textContent = 'Build finished without a blueprint';
+      $('buildSub').textContent = t === 'done' && casesRun ? (wrote ? 'They are under Blueprint (Test cases, at the bottom), where you can edit them, and they go in the package.' : 'The run ended without writing cases.json. The log below shows how far it got; the blueprint is as it was.') : t === 'done' ? (wrote ? 'Your blueprint is ready — it opens below, with your answers.' : 'The build ended without writing a blueprint, so the one you had before is still current. The log below shows how far it got.') : t === 'stopped' ? 'You stopped this build. The blueprint you had before is still current.' : 'The blueprint you had before is still current. The log below says what went wrong.';
       $('buildClose').classList.remove('hide'); $('log').classList.add('hide');   // the log stays under "Build log"
       if (t !== 'stopped') { $('buildMascot').src = `/mascot/${wrote ? 'happy' : 'sad'}.png`; $('buildMascot').classList.remove('hide'); }
-      refresh(); loadBlueprints();   // a finished build becomes the blueprint shown below
+      refresh(); loadBlueprints(d && d.kind === 'cases' ? d.build : undefined);   // cases: stay on that build; a finished build becomes the blueprint shown below
     }
   });
 }
@@ -854,7 +858,8 @@ function renderBpList() {
     if (b.current) when.appendChild(el('span', 'cur', 'current'));
     btn.appendChild(when);
     const c = b.counts;
-    btn.appendChild(el('span', 'bp-sub', b.status === 'running' ? 'Building now' : c ? `${plural(c.screens, 'screen', 'screens')} · ${plural(c.flows, 'flow', 'flows')}${b.status !== 'done' ? ` · ${STATUS[b.status]}` : ''}` : `${STATUS[b.status] || b.status} · no blueprint`));
+    const caseBit = b.casesRun && b.casesRun.status === 'running' ? ' · writing cases' : b.cases && b.cases.count ? ` · ${plural(b.cases.count, 'case', 'cases')}` : '';
+    btn.appendChild(el('span', 'bp-sub', b.status === 'running' ? 'Building now' : c ? `${plural(c.screens, 'screen', 'screens')} · ${plural(c.flows, 'flow', 'flows')}${caseBit}${b.status !== 'done' ? ` · ${STATUS[b.status]}` : ''}` : `${STATUS[b.status] || b.status} · no blueprint`));
     btn.onclick = () => showBlueprint(b.id);
     li.appendChild(btn); ul.appendChild(li);
   }
@@ -864,6 +869,9 @@ function syncActions() {
   const b = BUILDS.find(x => x.id === SELECTED);
   const has = !!(b && b.counts);
   $('buildOn').classList.toggle('hide', !has || RUNNING);
+  $('genCases').classList.toggle('hide', !has || RUNNING);
+  for (const id of ['downloadPkg', 'downloadPkg2']) if (RUNNING) $(id).classList.add('hide'); else if (has) $(id).classList.remove('hide');
+  if (b) $('genCases').textContent = b.cases && b.cases.count ? 'Add test cases' : 'Generate test cases';
   $('makeCurrent').classList.toggle('hide', !has || !b || b.current || RUNNING);
   $('deleteBp').classList.toggle('hide', !b || b.status === 'running' || RUNNING);
 }
@@ -999,7 +1007,7 @@ async function loadPackage() {
   $('pkgN').textContent = n ? String(n) : ''; $('pkgN').classList.toggle('hide', !n);
   $('pkgTotals').textContent = n ? `${plural(n, 'file', 'files')} added · ${fmtBytes(r.totals.bytes)} of ${fmtBytes(r.limits.totalBytes)}` : 'No files added — the package holds the blueprint only.';
   const href = `/api/builds/${encodeURIComponent(SELECTED || '')}/package`;
-  for (const id of ['downloadPkg', 'downloadPkg2']) { $(id).href = href; $(id).classList.toggle('hide', !hasBp); }
+  for (const id of ['downloadPkg', 'downloadPkg2']) { $(id).href = href; $(id).classList.toggle('hide', !hasBp || RUNNING); }   // never mid-run: the files are being rewritten
 }
 async function addPackageFiles(files) {
   $('pkgErr').classList.add('hide');

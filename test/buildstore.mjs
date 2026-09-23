@@ -158,5 +158,37 @@ check('list order follows creation, even when two builds start in the same milli
   assert.deepEqual(store.list().map(x => x.id), [c, b, a]);
 });
 
+check('generating cases for a build: its blueprint is never replaced, only cases.json comes back', () => {
+  const { kit, store } = fresh();
+  store.prepareStart({}); const a = store.create({}); writeFileSync(join(kit, 'blueprint.json'), bp(1)); store.finish(a, 'done');
+  store.prepareStart({}); const b = store.create({}); writeFileSync(join(kit, 'blueprint.json'), bp(2)); store.finish(b, 'done');
+  // an OLDER build: its blueprint goes in place for the run
+  assert.equal(store.startCases(a), null, 'no cases yet');
+  assert.equal(read(join(kit, 'blueprint.json')), bp(1));
+  writeFileSync(join(kit, 'blueprint.json'), 'MANGLED');                       // the agent touched it anyway
+  writeFileSync(join(kit, 'cases.json'), JSON.stringify([{ id: 'TC-1' }, { id: 'TC-2' }]));
+  store.finishCases(a, 'done');
+  assert.equal(read(join(kit, 'builds', a, 'blueprint.json')), bp(1), 'the build keeps its blueprint');
+  assert.deepEqual(JSON.parse(read(join(kit, 'builds', a, 'cases.json'))).map(c => c.id), ['TC-1', 'TC-2']);
+  assert.equal(store.get(a).meta.cases.count, 2);
+  assert.equal(read(join(kit, 'blueprint.json')), bp(2), 'the CURRENT build is back in smartmonkey/');
+  assert.equal(existsSync(join(kit, 'cases.json')), false, 'the current build has no cases, so none in place');
+});
+
+check('a failed or stopped case run keeps the build as it was; running builds and blueprint-less builds are refused', () => {
+  const { kit, store } = fresh();
+  store.prepareStart({}); const a = store.create({}); writeFileSync(join(kit, 'blueprint.json'), bp(1)); store.finish(a, 'done');
+  store.saveCases(a, [{ id: 'OWN-1' }]);
+  assert.deepEqual(store.startCases(a), [{ id: 'OWN-1' }], 'existing cases are handed to the run');
+  writeFileSync(join(kit, 'cases.json'), '[]');
+  store.finishCases(a, 'stopped');
+  assert.deepEqual(JSON.parse(read(join(kit, 'builds', a, 'cases.json'))), [{ id: 'OWN-1' }]);
+  assert.equal(store.get(a).meta.casesRun.status, 'stopped');
+  store.prepareStart({}); const b = store.create({});
+  assert.throws(() => store.startCases(b), /still running/);
+  store.finish(b, 'error');
+  assert.throws(() => store.startCases(b), /no blueprint/);
+});
+
 if (failures) { console.error(`\n${failures} failure(s)`); process.exit(1); }
 console.log('\nbuildstore: all passed');

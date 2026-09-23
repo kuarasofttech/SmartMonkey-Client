@@ -227,6 +227,40 @@ export function rebuildBlock(reviewed = [], connected = []) {
   ].join('\n');
 }
 
+/**
+ * Generate test cases FOR an existing build. The blueprint is finished and stays as it
+ * is; the run writes smartmonkey/cases.json following the builder prompt's own "Test
+ * cases" section (appended after this block), so there is one source of truth for
+ * what a case looks like.
+ */
+export function casesRunBlock({ existing = 0, previous = [], connected = [], files = [] } = {}) {
+  const prev = previous.filter(p => p && p.question && p.answer);
+  const docs = files.filter(f => f.kind === 'doc'), shots = files.filter(f => f.kind === 'screenshot');
+  return [
+    '# Write the test cases for this blueprint',
+    '',
+    'The blueprint is DONE: `smartmonkey/blueprint.json`. **Do not change it** — this run only writes `smartmonkey/cases.json`, and any edit to the blueprint is discarded. The owner asked for cases, so the "only if the interview said yes" condition in the Test cases section below does not apply here.',
+    '',
+    existing
+      ? `\`smartmonkey/cases.json\` already holds ${existing} case${existing === 1 ? '' : 's'} — some may be the owner's own or edited by them. **Keep every one of them unchanged (same id)**, add new cases next to them, and never delete any. If one is plainly wrong, say so in your summary instead of changing it.`
+      : 'There are no cases yet; write `smartmonkey/cases.json` from scratch.',
+    '',
+    '1. Read the blueprint first — flows, business rules, shortcuts, base states, prohibitions, testing focus — then the repo\'s tests and QA docs where they help.',
+    ...(docs.length || shots.length ? [
+      `2. The owner added files for you in \`smartmonkey/package/\` — use them:${docs.length ? ` documents (specs, test plans, notes) in \`docs/\`: ${docs.map(f => f.name).join(', ')}.` : ''}${shots.length ? ` Screenshots of the app in \`screenshots/\` (${shots.map(f => f.name).join(', ')}) show real screens and expected states — describe what they show in your own words; never copy personal data from them.` : ''}`,
+    ] : ['2. The owner added no documents or screenshots for this run.']),
+    '3. Before writing, ask the owner with `ask_user` — one click each, with options — only what changes the cases: how broad (`Smoke the critical path` / `Go broad`)' + (connected.length ? ', and whether to turn recent work into cases (`Recent bug fixes and the last sprint` / `Only recent bug fixes` / `No`)' : '') + '. Skip a question the blueprint\'s testing focus already settles. Never ask for a secret.',
+    '4. Give every case a `tags` entry for its FEATURE AREA (a flow or screen name from the blueprint, e.g. `area:Tagging`) and one for its KIND: `smoke`, `regression`, `integration`, or `negative`. SmartMonkey groups cases into suites by these.',
+    ...connectedLines(connected),
+    ...(prev.length ? ['', '**Last time the owner answered** — offer the matching answer as the FIRST option:', '', ...prev.map(p => `- ${p.question} → ${p.answer}`)] : []),
+    '',
+    'When you are done, print how many cases you wrote, by kind and area, and where they came from.',
+    '',
+    '---',
+    '',
+  ].join('\n');
+}
+
 /** Prepended when a build starts FROM an older one ("build on this"). */
 export function basedOnBlock(meta = {}) {
   const when = meta.finishedAt || meta.startedAt || 'an earlier build';

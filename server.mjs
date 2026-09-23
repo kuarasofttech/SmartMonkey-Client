@@ -14,7 +14,7 @@ import { makePackageStore, LIMITS as PACKAGE_LIMITS, TYPES as PACKAGE_TYPES } fr
 import { makeWebAsk, answerAsk, makeWebConnections, setConnection, startConnections } from './webask.mjs';
 import { makePopTerminalRunCli } from './terminal.mjs';
 import { makeHeadlessRunCli } from './headless.mjs';
-import { QUESTIONS, normalizeAnswers, servicesFor, answersBlock, runBlock, basedOnBlock, normalizeReviewed, rebuildBlock } from './interview.mjs';
+import { QUESTIONS, normalizeAnswers, servicesFor, answersBlock, runBlock, basedOnBlock, normalizeReviewed, rebuildBlock, casesRunBlock } from './interview.mjs';
 import { makeSecrets } from './secrets.mjs';
 import * as embed from './embed.mjs';
 import { DRIVERS, detectDrivers as defaultDetectDrivers } from './drivers.mjs';
@@ -122,8 +122,18 @@ export function createApp({ cwd = process.cwd(), secrets = makeSecrets(), modelF
     createReadStream(file).pipe(res);
   };
 
-  const finish = () => { emit('done', { blueprint: existsSync(join(KIT, 'blueprint.json')), build: session.buildId }); builds.finish(session.buildId, 'done'); };
-  const fail = e => { session.running = false; session.status = 'error'; session.error = e.message; emit('error', { message: e.message }); builds.finish(session.buildId, 'error', { error: e.message }); };
+  // A run is either a BUILD (writes a new blueprint) or a CASES run for an existing build
+  // (session.runKind === 'cases': only cases.json comes back, the blueprint is untouched).
+  const endRun = (status, extra) => (session.runKind === 'cases' ? builds.finishCases : builds.finish)(session.buildId, status, extra);
+  const finish = () => {
+    if (session.runKind === 'cases') {
+      const cp = join(KIT, 'cases.json');
+      let count = null; try { const j = JSON.parse(readFileSync(cp, 'utf8')); count = (Array.isArray(j) ? j : j.cases || []).length; } catch {}
+      emit('done', { kind: 'cases', cases: count, build: session.buildId });
+    } else emit('done', { blueprint: existsSync(join(KIT, 'blueprint.json')), build: session.buildId });
+    endRun('done');
+  };
+  const fail = e => { session.running = false; session.status = 'error'; session.error = e.message; emit('error', { message: e.message }); endRun('error', { error: e.message }); };
 
   function launchEmbedded(prompt, gen) {
     const live = () => gen === session.gen;
@@ -157,7 +167,7 @@ export function createApp({ cwd = process.cwd(), secrets = makeSecrets(), modelF
     });
     session.cliCancel = handle && handle.cancel ? handle.cancel : null;
     if (!session.running) return;   // it already finished (or failed) synchronously
-    if (handle && handle.headless) emit('text', `${driver.label} is building the blueprint in the background. Progress appears below; this page updates when it's done.`);
+    if (handle && handle.headless) emit('text', `${driver.label} is ${session.runKind === 'cases' ? 'writing test cases' : 'building the blueprint'} in the background. Progress appears below; this page updates when it's done.`);
     else if (handle && handle.inTerminal) emit('text', `Running ${driver.label} in the terminal where you started \`smartmonkey app\`.`);
     else if (handle && handle.launched) emit('text', `A terminal window opened to run ${driver.label}. This page comes back when it finishes.`);
   }
@@ -320,6 +330,34 @@ export function createApp({ cwd = process.cwd(), secrets = makeSecrets(), modelF
       } catch (e) { return sendJson(res, { error: e.message }, /unknown build/.test(e.message) ? 404 : 409); }
     }
 
+    // ---- generate test cases for an existing build (its blueprint stays as it is) ----
+    const cg = path.match(/^\/api\/builds\/([\w-]+)\/cases\/generate$/);
+    if (cg && method === 'POST') {
+      if (session.running) return sendJson(res, { error: 'a run is already active' }, 409);
+      const id = cg[1];
+      let driver = null;
+      if (session.mode === 'cli') {
+        driver = DRIVERS.find(x => x.id === session.driver);
+        if (!driver || !detectDrivers().some(x => x.id === driver.id)) return sendJson(res, { error: 'selected CLI not available — choose a logged-in CLI' }, 400);
+      } else if (!ready()) return sendJson(res, { error: 'AI not ready — set a provider + key first' }, 400);
+      let existing;
+      try { existing = builds.startCases(id); }
+      catch (e) { return sendJson(res, { error: e.message }, /unknown build/.test(e.message) ? 404 : 409); }
+      const gen = ++session.gen;
+      session.running = true; session.status = 'running'; session.error = null; session.events = []; session.startedAt = new Date().toISOString();
+      session.pendingAsk = null; session.pendingConnections = null;
+      session.runKind = 'cases'; session.buildId = id;
+      const previous = loadOwnerAnswers();
+      session.webask = makeWebAsk(session, emit, { suggest: (q, o, m) => suggestFor(q, o, m, previous) });
+      agentAsks.clear();
+      emit('text', `Writing test cases for this blueprint${Array.isArray(existing) && existing.length ? ` (keeping its ${existing.length} existing case${existing.length === 1 ? '' : 's'})` : ''}.`);
+      const connected = CONNECTORS.map(c => ({ c, cr: loadCreds(c) })).filter(x => x.cr).map(({ c, cr }) => ({ label: c.label, account: cr._account, tools: c.tools.map(t => t.name) }));
+      const full = PROMPT(), at = full.indexOf('## Test cases');
+      const prompt = casesRunBlock({ existing: Array.isArray(existing) ? existing.length : 0, previous, connected, files: pkg.list() }) + (at >= 0 ? full.slice(at) : full);
+      if (driver) launchCli(driver, prompt, gen); else launchEmbedded(prompt, gen);
+      return sendJson(res, { ok: true }, 202);
+    }
+
     if (path === '/api/interview' && method === 'GET') {
       return sendJson(res, { questions: QUESTIONS, saved: loadAnswers() });
     }
@@ -355,6 +393,7 @@ export function createApp({ cwd = process.cwd(), secrets = makeSecrets(), modelF
       agentAsks.clear();
       // Every build is kept: a clean start sets the current blueprint aside; "build on" places an older one.
       builds.prepareStart({ basedOn });
+      session.runKind = 'build';
       session.buildId = builds.create({ driver: driver ? driver.id : session.ai.provider, basedOn });
       // The reviewed answers become this build's answers — with their options — so the next
       // review starts from them and every rebuild carries the full set forward.
@@ -426,7 +465,7 @@ export function createApp({ cwd = process.cwd(), secrets = makeSecrets(), modelF
       if (session.pendingConnections) { const p = session.pendingConnections; session.pendingConnections = null; p.resolve('The user stopped the run at the connect step.'); }
       if (session.cliCancel) { session.cliCancel(); session.cliCancel = null; }   // kill a headless run / stop watching a terminal window
       releaseAgentAsks();
-      if (wasRunning) { session.running = false; session.status = 'stopped'; emit('stopped', {}); builds.finish(session.buildId, 'stopped'); }
+      if (wasRunning) { session.running = false; session.status = 'stopped'; emit('stopped', {}); endRun('stopped'); }
       return sendJson(res, { ok: true });
     }
 

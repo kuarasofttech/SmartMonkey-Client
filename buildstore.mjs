@@ -59,9 +59,42 @@ export function makeBuildStore(kit, { now = () => new Date(), rand = () => rando
       writeFileSync(p, head + missing.join('\n') + '\n');
     },
 
-    /** Builds still marked running when the app starts again did not finish. */
+    /** Builds (and case runs) still marked running when the app starts again did not finish. */
     recover() {
-      for (const id of ids()) { const m = metaOf(id); if (m && m.status === 'running') { m.status = 'interrupted'; saveMeta(m); } }
+      let casesCut = false;
+      for (const id of ids()) {
+        const m = metaOf(id); if (!m) continue;
+        if (m.status === 'running') { m.status = 'interrupted'; saveMeta(m); }
+        if (m.casesRun && m.casesRun.status === 'running') { m.casesRun.status = 'interrupted'; saveMeta(m); casesCut = true; }
+      }
+      if (casesCut) place(currentId());   // a cut-off case run may have left another build's files in place
+    },
+
+    /**
+     * Generate test cases FOR an existing build. Its blueprint and cases go in place (the
+     * agent reads blueprint.json and extends cases.json); when the run ends only cases.json
+     * is taken back — the blueprint is never replaced, whatever the agent did to the file.
+     */
+    startCases(id) {
+      const m = metaOf(id); if (!m) throw new Error(`unknown build ${id}`);
+      if (m.status === 'running') throw new Error('that build is still running');
+      if (!existsSync(join(root, id, 'blueprint.json'))) throw new Error('that build has no blueprint to write cases for');
+      place(id);
+      m.casesRun = { status: 'running', startedAt: now().toISOString() }; saveMeta(m);
+      return readJson(join(root, id, 'cases.json'));
+    },
+
+    finishCases(id, status, { error } = {}) {
+      const m = metaOf(id); if (!m || !m.casesRun || m.casesRun.status !== 'running') return;
+      m.casesRun = { ...m.casesRun, status, finishedAt: now().toISOString(), ...(error ? { error } : {}) };
+      if (status === 'done') {
+        const got = readJson(join(kit, 'cases.json'));
+        const list = Array.isArray(got) ? got : got && Array.isArray(got.cases) ? got.cases : null;
+        if (list) { writeJson(join(root, id, 'cases.json'), list); m.cases = { count: list.length, generatedAt: m.casesRun.finishedAt }; }
+        else m.casesRun.noCases = true;
+      }
+      saveMeta(m);
+      place(currentId());   // the current build's files back in smartmonkey/ (with its new cases, if it was this one)
     },
 
     /** A blueprint that predates history becomes a build first, so a clean start never loses it. */
