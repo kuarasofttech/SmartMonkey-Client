@@ -5,14 +5,16 @@
  * pending question lives on the session (and is exposed by /api/status), a
  * reloaded page can still see and answer it.
  */
-export function makeWebAsk(session, emit) {
+export function makeWebAsk(session, emit, { suggest = () => null } = {}) {
   let n = 0;
   return (question, options, multi) => new Promise((resolve) => {
     const opts = Array.isArray(options) && options.length ? options : undefined;
     const id = 'ask_' + (++n);
     const m = !!(multi && opts);
-    session.pendingAsk = { id, question: question || '', options: opts, multi: m, resolve };
-    emit('ask', { id, question: question || '', options: opts, multi: m });
+    // last time's answer to this question, pre-selected in the page (re-runs)
+    const suggested = suggest(question || '', opts || [], m) || undefined;
+    session.pendingAsk = { id, question: question || '', options: opts, multi: m, suggested, resolve };
+    emit('ask', { id, question: question || '', options: opts, multi: m, suggested });
   });
 }
 

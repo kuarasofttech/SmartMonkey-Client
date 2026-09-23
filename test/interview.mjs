@@ -132,5 +132,20 @@ check('runBlock: previous answers are offered first on a re-run', () => {
   assert.match(b, /first option/i);
 });
 
+check('the issue tracker is asked always; recent work only when writing cases with a tracker', () => {
+  assert.equal(isAsked(q('tracker'), {}), true);
+  assert.equal(isAsked(q('recentWork'), { produce: 'blueprint', tracker: 'linear' }), false);
+  assert.equal(isAsked(q('recentWork'), { produce: 'blueprint+cases', tracker: 'none' }), false);
+  assert.equal(isAsked(q('recentWork'), { produce: 'blueprint+cases', tracker: 'linear' }), true);
+  assert.deepEqual(servicesFor(normalizeAnswers({ tracker: 'linear', docs: ['linear'] })), ['Linear'], 'no dupes with docs');
+  assert.deepEqual(servicesFor(normalizeAnswers({ tracker: 'jira' })), ['Jira']);
+});
+
+check('runBlock: a connected tracker is pointed at recent work — fixed bugs → regression, finished tasks → integration', () => {
+  const b = runBlock([], [{ label: 'Linear', tools: ['linear_completed_issues', 'linear_list_cycles'] }]);
+  assert.match(b, /regression case/); assert.match(b, /integration case/);
+  assert.match(b, /last sprint/); assert.match(b, /priorities/);
+});
+
 if (failures) { console.error(`\n${failures} failure(s)`); process.exit(1); }
 console.log('\ninterview: all passed');

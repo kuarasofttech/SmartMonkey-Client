@@ -47,6 +47,14 @@ waiting for a human. Ask them roughly in this order (skip any that a branch rule
    3) I'll paste an export (CSV / JSON)
    *(default: 3 — ask me to paste it)*
 
+   **(only if you're generating cases) Should I also turn RECENT WORK into cases?** Where do you
+   track bugs, tasks and sprints (Jira, Linear, GitHub Issues, Azure DevOps…)? I read the recently
+   fixed bugs and last sprint's finished tasks there and write regression + integration cases.
+   1) Yes — recent bug fixes and the last sprint
+   2) Only recent bug fixes
+   3) No
+   *(default: 3 — and the tracker is reached like question 3: your access, or an export)*
+
 4. **If there is more than one build/flavour, which should a tester use?**
    *(default: the debug/dev variant)*
 
@@ -388,6 +396,19 @@ test cases in the shape below.
    (`testGuidance.coverage`: `smoke` = just the critical path; `broad` = wider).** Where a
    test SHORTCUT can set up state or check a result, lean on it instead of long UI navigation.
    Keep each case small — a handful of steps.
+3. **Recent work — bug fixes, finished tasks, the last sprint.** This comes ON TOP of 1 or 2
+   whenever you can read my issue tracker (Jira, Linear, GitHub Issues…) and I didn't say no.
+   Recent work is where things break, and it's what flows and old cases miss:
+   - **Each recently FIXED bug → a regression case.** Steps reproduce what the bug report
+     describes; `expected` is the fixed behaviour. Priority at least `high`.
+   - **Each task finished in the last sprint/cycle (or the last few weeks) → an integration
+     case.** Walk the new behaviour end to end AND through the features it touches (a new
+     payment method → checkout, the order history, the receipt), not the change alone.
+   - Skip work a tester can't see on a screen (refactors, CI, backend-only chores) — and
+     say how many you skipped.
+   - Tag them `regression` or `integration` plus `from:<issue key>` (e.g. `from:ENG-123`),
+     so I can trace each case back to its issue. The issue key is fine; its text is not —
+     describe behaviour in your own words, as always.
 
 Every case:
 - `requires` is a state from THIS blueprint's vocabulary — `fresh`, `logged_out`,
@@ -423,5 +444,5 @@ values for `{{placeholders}}`), then `steps[]` (each `{ "do", "expect"? }`) OR a
 (one sentence), and `expected`. At most 500 cases, 50 steps each.
 
 Then print how many cases you produced and where they came from (converted from Jira,
-drafted from flows, …). The project owner imports `cases.json` in SmartMonkey (Test cases →
+drafted from flows, regression/integration from recent tracker work, …). The project owner imports `cases.json` in SmartMonkey (Test cases →
 Import JSON → choose file).

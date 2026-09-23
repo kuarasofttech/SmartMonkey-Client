@@ -156,7 +156,17 @@
   .confirm { display:flex; gap:8px; align-items:center; font-size:14px; color:var(--ink); }
   .bp-acts.confirming > button { display:none; }
   .hide { display:none; }
-  @media (prefers-reduced-motion: reduce) { * { transition:none !important; } }
+  .working { display:flex; align-items:center; gap:10px; margin:4px 0 12px; padding:9px 12px; border:1px solid var(--line); border-radius:8px; background:var(--raised); font-size:13px; color:var(--slate); min-width:0; }
+  .working .spin { flex:none; width:14px; height:14px; border-radius:50%; border:2px solid var(--brand-soft); border-top-color:var(--brand); animation:spin .8s linear infinite; }
+  .working .w-text { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .working .w-text b { color:var(--ink); font-weight:600; }
+  .working .w-time { flex:none; font-family:'Space Mono', monospace; font-size:12px; }
+  .working.waiting { border-color:var(--brand); }
+  .working.waiting .spin { border-color:var(--brand); animation:pulse 1.4s ease-in-out infinite; }
+  @keyframes spin { to { transform:rotate(360deg); } }
+  @keyframes pulse { 50% { opacity:.3; } }
+  .ask .pill .was { display:block; font-size:11px; font-weight:500; color:var(--brand); }
+  @media (prefers-reduced-motion: reduce) { * { transition:none !important; } .working .spin { animation-duration:2.4s; } }
 </style>
 </head>
 <body>
@@ -228,6 +238,7 @@
   <section class="card hide" id="buildPanel">
     <h2 class="plain" id="buildTitle">Building</h2>
     <p class="sub">SmartMonkey reads your repo, then asks you a few questions here. Just click an answer.</p>
+    <div class="working hide" id="working" role="status" aria-live="polite"><span class="spin" aria-hidden="true"></span><span class="w-text" id="wText">Working…</span><span class="w-time" id="wTime"></span></div>
     <div id="asks"></div>
     <div id="log" class="logbox"></div>
   </section>
@@ -288,7 +299,7 @@ async function populateDrivers(selectId) {
 }
 
 let driversLoaded = false;
-let AI_READY = false, RUNNING = false;
+let AI_READY = false, RUNNING = false, PROJECT = '';
 async function refresh() {
   const s = await api('GET', '/api/status');
   $('kc').textContent = s.keychain.available ? '· saved in OS keychain' : '· keychain unavailable, kept for this session only';
@@ -303,9 +314,11 @@ async function refresh() {
     $('aiStatus').textContent = s.ai.ready ? `Ready: ${s.ai.provider} · ${s.ai.model}` : 'Set a provider + key to enable Build.';
   }
   AI_READY = !!s.ai.ready;
-  if (s.project) { $('projectName').innerHTML = ''; $('projectName').appendChild(document.createTextNode('Project: ')); $('projectName').appendChild(el('b', null, s.project.name)); document.title = `SmartMonkey · ${s.project.name}`; }
+  if (s.project) { $('projectName').innerHTML = ''; $('projectName').appendChild(document.createTextNode('Project: ')); $('projectName').appendChild(el('b', null, s.project.name)); PROJECT = s.project.name; flagQuestion(); }
   const running = s.run.status === 'running';
   RUNNING = running;
+  WORK.startedAt = running && s.run.startedAt ? Date.parse(s.run.startedAt) : WORK.startedAt;
+  setWorking();
   $('gen').disabled = running;
   $('stop').classList.toggle('hide', !running); $('stop').disabled = false;
   if (running) $('buildPanel').classList.remove('hide');
@@ -360,6 +373,7 @@ async function startBuild(opts = {}) {
   $('log').textContent = ''; $('asks').innerHTML = '';
   $('buildPanel').classList.remove('hide'); $('buildTitle').textContent = opts.basedOn ? 'Building on the selected blueprint' : 'Building a new blueprint';
   $('empty').classList.add('hide');
+  RUNNING = true; WORK.startedAt = Date.now(); WORK.activity = 'Starting up'; setWorking();
   $('buildPanel').scrollIntoView({ behavior: 'smooth', block: 'start' });
   const r = await api('POST', '/api/generate', opts);
   if (r && r.error) logLine('✗ ' + r.error);
@@ -373,7 +387,7 @@ function renderAsk(a) {
   if (document.getElementById('ask-' + a.id)) return;
   const box = el('div', 'ask'); box.id = 'ask-' + a.id;
   box.appendChild(el('p', 'ask-q', a.question));
-  if (a.multi) box.appendChild(el('p', 'ask-note', 'Pick all that apply, then press Done.'));
+  if (a.multi && !a.suggested) box.appendChild(el('p', 'ask-note', 'Pick all that apply, then press Done.'));
   const group = el('div', 'pills'); box.appendChild(group);
   const typed = el('input', 'other hide'); typed.type = 'text'; typed.placeholder = 'Type your answer';
   const acts = el('div', 'ask-actions');
@@ -390,16 +404,26 @@ function renderAsk(a) {
     if (a.multi) return;                       // multi waits for Done
     pill.classList.add('picked'); setTimeout(() => submit(value), 180);   // a beat so the click registers visually
   };
+  // A re-run: what the owner chose last time is already selected. Multi → ticked, Done sends it;
+  // single → marked "last time", one click (or Answer) sends it; typed → back in the Other box.
+  const sug = a.suggested || null, was = new Set((sug && sug.picked) || []);
+  if (sug) box.insertBefore(el('p', 'ask-note', a.multi ? 'Your choices from last time are ticked — change them or press Done.' : 'Your answer from last time is selected — press Answer to keep it, or pick another.'), group);
   for (const o of a.options || []) {
     const pill = el('label', 'pill');
     const inp = el('input'); inp.type = a.multi ? 'checkbox' : 'radio'; inp.name = 'ask-' + a.id; inp.value = o;
+    if (was.has(o)) { inp.checked = true; }
     inp.onchange = () => choose(o, pill);
-    pill.appendChild(inp); pill.appendChild(document.createTextNode(o)); group.appendChild(pill);
+    if (!a.multi && was.has(o)) inp.onclick = () => { if (inp.checked) choose(o, pill); };   // re-clicking last time's answer keeps it
+    pill.appendChild(inp); pill.appendChild(document.createTextNode(o));
+    if (was.has(o)) pill.appendChild(el('span', 'was', 'last time'));
+    group.appendChild(pill);
   }
   const other = el('button', 'pill other-pill', 'Other…');
   other.onclick = () => { typed.classList.remove('hide'); done.classList.remove('hide'); done.textContent = 'Answer'; typed.focus(); };
   group.appendChild(other);
   box.appendChild(typed);
+  if (sug && sug.other) { typed.value = sug.other; typed.classList.remove('hide'); }
+  if (sug && !a.multi) done.classList.remove('hide');
   done.onclick = () => {
     const t = typed.value.trim();
     if (t) return submit(t);
@@ -416,7 +440,23 @@ function renderAsk(a) {
 // Put a marker in the tab title while a question waits, so it's noticed from another tab.
 function flagQuestion() {
   const waiting = !!document.querySelector('#asks .ask:not(.conns)');
-  document.title = (waiting ? '(1) Question · ' : '') + 'SmartMonkey';
+  document.title = (waiting ? '(1) Question · ' : '') + 'SmartMonkey' + (PROJECT ? ` · ${PROJECT}` : '');
+  setWorking();
+}
+
+// The "it's working" line while a build runs: a spinner, what it did last, and how
+// long it has been going. It turns into "waiting for you" while a question is up.
+const WORK = { startedAt: null, activity: '', timer: null };
+function setWorking() {
+  const box = $('working'); if (!box) return;
+  if (!RUNNING) { box.classList.add('hide'); clearInterval(WORK.timer); WORK.timer = null; return; }
+  const asking = !!document.querySelector('#asks .ask');
+  box.classList.remove('hide'); box.classList.toggle('waiting', asking);
+  const t = $('wText'); t.innerHTML = '';
+  if (asking) t.appendChild(el('b', null, document.querySelector('#asks .ask:not(.conns)') ? 'Waiting for your answer' : 'Waiting for you to connect or skip'));
+  else { t.appendChild(el('b', null, 'Working')); if (WORK.activity) t.appendChild(document.createTextNode(' · ' + WORK.activity)); }
+  const tick = () => { if (!WORK.startedAt) { $('wTime').textContent = ''; return; } const s = Math.max(0, Math.floor((Date.now() - WORK.startedAt) / 1000)); $('wTime').textContent = `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`; };
+  tick(); if (!WORK.timer) WORK.timer = setInterval(tick, 1000);
 }
 
 // Tools the build asked for. Only a tool with a REAL connector gets a Connect
@@ -442,11 +482,11 @@ function renderConnections(c) {
     for (const s of c.services) if (!(c.connectable && c.connectable[s]) && (c.status[s] || 'pending') === 'pending') await api('POST', '/api/connect', { id: c.id, service: s, action: 'skip' });
     const r = await api('POST', '/api/connections/start', { id: c.id });
     if (r && r.error) { start.disabled = false; return; }
-    box.remove(); logLine('\n▶ Building the blueprint…');
+    box.remove(); logLine('\n▶ Building the blueprint…'); WORK.activity = 'building the blueprint'; setWorking();
   };
   box.appendChild(start);
   $('asks').appendChild(box);
-  updateConnections(c);
+  updateConnections(c); setWorking();
 }
 function updateConnections(c) {
   const list = document.getElementById('conns-list'); if (!list) return;
@@ -505,6 +545,11 @@ for (const t of ['text', 'tool', 'answered', 'ask', 'connections', 'done', 'stop
     $('buildPanel').classList.remove('hide');
     let d; try { d = JSON.parse(e.data); } catch { d = e.data; }
     showEvent(t, d, true);
+    if (t === 'tool' && d) WORK.activity = `${d.name}${d.summary ? ' ' + d.summary : ''}`.slice(0, 140);
+    else if (t === 'text' && typeof d === 'string' && d.trim()) WORK.activity = 'thinking';
+    else if (t === 'answered') WORK.activity = 'carrying on with your answer';
+    if (t === 'done' || t === 'stopped' || t === 'error') RUNNING = false;
+    setWorking();
     if (t === 'stopped') { $('asks').innerHTML = ''; flagQuestion(); }
     if (t === 'done' || t === 'stopped' || t === 'error') {
       $('buildTitle').textContent = t === 'done' ? 'Build finished' : t === 'stopped' ? 'Build stopped' : 'Build failed';

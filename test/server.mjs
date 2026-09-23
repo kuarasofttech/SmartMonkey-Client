@@ -744,5 +744,39 @@ await check('a blueprint remembers the outcome of its connect step', async () =>
   s.destroy(); app.server.close();
 });
 
+await check('a re-run pre-selects last time\'s choice, even when the agent rewords the question and options', async () => {
+  const cwd = mkdtempSync(join(tmpdir(), 'sm-app-'));
+  let run = 0, turn = 0;
+  const ASKS = [
+    { question: 'Which build should a tester use?', options: ['devDebug', 'release'] },
+    { question: 'Which build variant should testers install?', options: ['release', 'devDebug (dev backend)'] },
+  ];
+  const mockModel = async () => {
+    turn++;
+    if (turn === 1) return { content: [{ type: 'tool_use', id: 't1', name: 'ask_user', input: ASKS[run - 1] }], stop_reason: 'tool_use' };
+    return { content: [{ type: 'text', text: 'done' }], stop_reason: 'end_turn' };
+  };
+  const app = createApp({ cwd, secrets: makeSecrets({ platform: 'win32' }), modelFactory: () => mockModel });
+  const port = await app.listen(0);
+  await req(port, 'POST', '/api/ai', { provider: 'anthropic', model: 'claude-sonnet-5', key: 'sk-ant-x' });
+  const oneRun = async answer => {
+    run++; turn = 0;
+    assert.equal((await req(port, 'POST', '/api/generate')).status, 202);
+    let st;
+    for (let i = 0; i < 100; i++) { st = (await req(port, 'GET', '/api/status')).json; if (st.pendingAsk) break; await new Promise(r => setTimeout(r, 20)); }
+    assert.ok(st.run.startedAt, 'the status carries when the build started (the working timer)');
+    await req(port, 'POST', '/api/answer', { id: st.pendingAsk.id, answer });
+    for (let i = 0; i < 100; i++) { if ((await req(port, 'GET', '/api/status')).json.run.status !== 'running') break; await new Promise(r => setTimeout(r, 20)); }
+    return st.pendingAsk;
+  };
+  const first = await oneRun('devDebug');
+  assert.equal(first.suggested, undefined, 'nothing to pre-select the first time');
+  const rec = JSON.parse(readFileSync(join(cwd, 'smartmonkey', 'owner-answers.json'), 'utf8')).answers;
+  assert.deepEqual(rec[0].picked, ['devDebug'], 'the exact pick is recorded');
+  const second = await oneRun('release');
+  assert.deepEqual(second.suggested.picked, ['devDebug (dev backend)']);
+  app.server.close();
+});
+
 if (failures) { console.error(`\n${failures} failure(s)`); process.exit(1); }
 console.log('\nserver: all passed');

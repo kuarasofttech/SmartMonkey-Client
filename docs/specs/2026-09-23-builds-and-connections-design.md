@@ -83,6 +83,13 @@ Each exports `{ id, label, fields, test(creds), tools: [{ name, description, inp
 - **Linear first**: personal API key; tools `linear_search_issues`,
   `linear_get_issue` (with comments), `linear_list_projects`, `linear_get_project`.
 - Where a tool supports read-only / scoped keys, the setup text asks for one.
+- **Recent work** (owner, 2026-09-23): connections are not only for finding existing
+  cases — a tracker's recent work is the best source of NEW ones. Linear adds
+  `linear_completed_issues` (window, bugs-only, team — built into a filter by our code,
+  values only from the agent), `linear_list_cycles`, `linear_get_cycle`. The interview
+  asks where bugs/tasks/sprints are tracked (always) and whether to turn recent work
+  into cases (only when writing cases). Fixed bug → regression case, finished task →
+  integration case through the features it touches, tagged `from:<issue key>`.
 
 ### Credentials
 OS keychain via the existing `secrets.mjs` (`connector:linear`). The UI never

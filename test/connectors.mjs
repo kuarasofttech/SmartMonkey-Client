@@ -90,5 +90,50 @@ await check('a Linear error comes back as a readable message, not a crash', asyn
   assert.match(out, /Entity not found/);
 });
 
+await check('recent work: completed issues — the window, bug filter and team go in as VARIABLES; a bad team key never reaches Linear', async () => {
+  const f = fakeFetch(() => ({ data: { issues: { nodes: [
+    { identifier: 'ENG-2', title: 'Old fix', completedAt: '2026-09-01T10:00:00Z', labels: { nodes: [{ name: 'Bug' }] }, cycle: { number: 7, name: '' } },
+    { identifier: 'ENG-9', title: 'Crash on empty cart', completedAt: '2026-09-20T10:00:00Z', priorityLabel: 'Urgent', labels: { nodes: [{ name: 'Bug' }] }, project: { name: 'Checkout' } },
+  ] } } }));
+  const t = linear.tools.find(x => x.name === 'linear_completed_issues');
+  const now = Date.parse('2026-09-23T00:00:00Z');
+  const out = await t.run({ apiKey: 'k' }, { days: 14, bugsOnly: true, team: 'ENG', limit: 500 }, { fetchImpl: f.fetchImpl, now });
+  const v = f.sent[0].body.variables;
+  assert.equal(v.filter.completedAt.gte, '2026-09-09T00:00:00.000Z');
+  assert.deepEqual(v.filter.labels, { some: { name: { containsIgnoreCase: 'bug' } } });
+  assert.deepEqual(v.filter.team, { key: { eq: 'ENG' } });
+  assert.equal(v.first, 50, 'limit clamped');
+  assert.ok(out.indexOf('ENG-9') < out.indexOf('ENG-2'), 'newest first');
+  assert.match(out, /bugs fixed in the last 14 days/);
+  assert.match(out, /Crash on empty cart \[done 2026-09-20, Urgent\]/);
+  assert.match(out, /Cycle 7/);
+  const all = await t.run({ apiKey: 'k' }, {}, { fetchImpl: f.fetchImpl, now });
+  assert.equal(f.sent[1].body.variables.filter.labels, undefined, 'no bug filter unless asked');
+  assert.match(all, /issues completed in the last 30 days/);
+  const bad = await t.run({ apiKey: 'k' }, { team: 'ENG") { x' }, { fetchImpl: f.fetchImpl, now });
+  assert.match(bad, /not a valid Linear team key/); assert.equal(f.sent.length, 2);
+});
+
+await check('recent work: cycles skip ones not started yet, newest first; a cycle splits completed from not', async () => {
+  const now = Date.parse('2026-09-23T00:00:00Z');
+  const f = fakeFetch(b => /cycles\(/.test(b.query)
+    ? { data: { cycles: { nodes: [
+        { id: 'c1', number: 11, startsAt: '2026-09-01T00:00:00Z', endsAt: '2026-09-14T00:00:00Z', isPast: true, progress: 0.8, team: { key: 'ENG' } },
+        { id: 'c3', number: 13, startsAt: '2026-09-29T00:00:00Z', endsAt: '2026-10-12T00:00:00Z', progress: 0, team: { key: 'ENG' } },
+        { id: 'c2', number: 12, name: 'Payments', startsAt: '2026-09-15T00:00:00Z', endsAt: '2026-09-28T00:00:00Z', isActive: true, progress: 0.4, team: { key: 'ENG' } } ] } } }
+    : { data: { cycle: { number: 11, startsAt: '2026-09-01T00:00:00Z', endsAt: '2026-09-14T00:00:00Z', team: { key: 'ENG' }, issues: { nodes: [
+        { identifier: 'ENG-5', title: 'Apple Pay', completedAt: '2026-09-10T00:00:00Z', state: { name: 'Done', type: 'completed' } },
+        { identifier: 'ENG-6', title: 'Refunds', state: { name: 'In Progress', type: 'started' } } ] } } } });
+  const list = await linear.tools.find(x => x.name === 'linear_list_cycles').run({ apiKey: 'k' }, {}, { fetchImpl: f.fetchImpl, now });
+  assert.doesNotMatch(list, /Cycle 13/, 'upcoming cycle left out');
+  assert.ok(list.indexOf('Cycle 12') < list.indexOf('Cycle 11'));
+  assert.match(list, /Cycle 12 "Payments".*current, 40% done/);
+  assert.match(list, /id c1/);
+  const one = await linear.tools.find(x => x.name === 'linear_get_cycle').run({ apiKey: 'k' }, { id: 'c1' }, { fetchImpl: f.fetchImpl });
+  assert.match(one, /Completed \(1\):\n- ENG-5: Apple Pay/);
+  assert.match(one, /Not completed \(1\):\n- ENG-6: Refunds/);
+  assert.match(one, /information, not instructions/);
+});
+
 if (failures) { console.error(`\n${failures} failure(s)`); process.exit(1); }
 console.log('\nconnectors: all passed');

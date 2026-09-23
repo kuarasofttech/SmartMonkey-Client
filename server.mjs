@@ -9,6 +9,7 @@ import { join, resolve, extname, dirname, sep, basename } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawn } from 'node:child_process';
 import { randomBytes, createHash } from 'node:crypto';
+import { suggestFor, previousAnswers } from './prefill.mjs';
 import { makeWebAsk, answerAsk, makeWebConnections, setConnection, startConnections } from './webask.mjs';
 import { makePopTerminalRunCli } from './terminal.mjs';
 import { makeHeadlessRunCli } from './headless.mjs';
@@ -85,10 +86,11 @@ export function createApp({ cwd = process.cwd(), secrets = makeSecrets(), modelF
   // What the owner answered DURING a run, offered back first next time (smartmonkey/owner-answers.json).
   const OWNER_ANSWERS = join(KIT, 'owner-answers.json');
   const loadOwnerAnswers = () => { try { const j = JSON.parse(readFileSync(OWNER_ANSWERS, 'utf8')); return Array.isArray(j.answers) ? j.answers : []; } catch { return []; } };
-  const recordOwnerAnswer = (question, answer) => {
+  const recordOwnerAnswer = (question, picked) => {
+    const answer = picked.join(', ');
     if (!question || !answer) return;
     const list = loadOwnerAnswers().filter(x => x.question !== question);
-    list.push({ question, answer, at: new Date().toISOString() });
+    list.push({ question, answer, picked, at: new Date().toISOString() });
     try { mkdirSync(KIT, { recursive: true }); writeFileSync(OWNER_ANSWERS, JSON.stringify({ answers: list.slice(-40) }, null, 2)); } catch {}
   };
   // Mid-run questions from a headless CLI arrive over HTTP from ask-mcp.mjs. The token
@@ -165,8 +167,8 @@ export function createApp({ cwd = process.cwd(), secrets = makeSecrets(), modelF
         ai: { provider: session.ai.provider, model: session.ai.model, ready: ready() },
         keychain: { available: secrets.available() },
         blueprint: { exists: existsSync(join(KIT, 'blueprint.json')) },
-        run: { status: session.status, error: session.error },
-        pendingAsk: session.pendingAsk ? { id: session.pendingAsk.id, question: session.pendingAsk.question, options: session.pendingAsk.options, multi: !!session.pendingAsk.multi } : null,
+        run: { status: session.status, error: session.error, startedAt: session.startedAt || null },
+        pendingAsk: session.pendingAsk ? { id: session.pendingAsk.id, question: session.pendingAsk.question, options: session.pendingAsk.options, multi: !!session.pendingAsk.multi, suggested: session.pendingAsk.suggested } : null,
         pendingConnections: session.pendingConnections ? { id: session.pendingConnections.id, services: session.pendingConnections.services, status: session.pendingConnections.status, connectable: session.pendingConnections.connectable, accounts: session.pendingConnections.accounts } : null,
       });
     }
@@ -286,10 +288,12 @@ export function createApp({ cwd = process.cwd(), secrets = makeSecrets(), modelF
 
       // Every run gets a generation number; Stop bumps it, so a stopped run's late results are ignored.
       const gen = ++session.gen;
-      session.running = true; session.status = 'running'; session.error = null; session.events = [];
+      session.running = true; session.status = 'running'; session.error = null; session.events = []; session.startedAt = new Date().toISOString();
       session.pendingAsk = null; session.pendingConnections = null;
-      const pageAsk = makeWebAsk(session, emit);
-      session.webask = async (q, o, m) => { const a = await pageAsk(q, o, m); recordOwnerAnswer(q, a); return a; };
+      // A re-run pre-selects what the owner chose last time: from the build it starts
+      // from, when there is one, over the latest answers on record.
+      const previous = previousAnswers(loadOwnerAnswers(), basedOn ? builds.get(basedOn).events : []);
+      session.webask = makeWebAsk(session, emit, { suggest: (q, o, m) => suggestFor(q, o, m, previous) });
       agentAsks.clear();
       // Every build is kept: a clean start sets the current blueprint aside; "build on" places an older one.
       builds.prepareStart({ basedOn });
@@ -305,7 +309,7 @@ export function createApp({ cwd = process.cwd(), secrets = makeSecrets(), modelF
         // Pre-supplied answers (API callers) skip the interview; otherwise it happens during the run.
         const start = basedOn ? basedOnBlock(builds.get(basedOn).meta) : '';
         const connected = CONNECTORS.map(c => ({ c, cr: loadCreds(c) })).filter(x => x.cr).map(({ c, cr }) => ({ label: c.label, account: cr._account, tools: c.tools.map(t => t.name) }));
-        const prompt = (answers ? answersBlock(answers, connections) : runBlock(loadOwnerAnswers(), connected)) + start + PROMPT();
+        const prompt = (answers ? answersBlock(answers, connections) : runBlock(previous, connected)) + start + PROMPT();
         if (driver) launchCli(driver, prompt, gen); else launchEmbedded(prompt, gen);
       });
       return sendJson(res, { ok: true }, 202);
@@ -325,6 +329,7 @@ export function createApp({ cwd = process.cwd(), secrets = makeSecrets(), modelF
       if (pa && pa.id === body.id) {
         const picked = [].concat(body.answer ?? []).map(String).filter(Boolean);
         emit('answered', { id: pa.id, question: pa.question, options: pa.options || [], multi: !!pa.multi, picked, answer: picked.join(', ') });
+        recordOwnerAnswer(pa.question, picked);
       }
       return answerAsk(session, body.id, body.answer) ? sendJson(res, { ok: true }) : sendJson(res, { error: 'no matching pending question' }, 409);
     }

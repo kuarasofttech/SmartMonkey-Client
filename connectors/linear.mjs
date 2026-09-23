@@ -28,6 +28,10 @@ const wrap = (title, body) => {
 };
 const clamp = (n, d) => Math.max(1, Math.min(25, Number.isFinite(+n) ? Math.floor(+n) : d));
 const trim = (s, n = 1500) => (s && s.length > n ? s.slice(0, n) + '…' : s || '');
+const TEAM = /^[A-Za-z0-9]{1,12}$/;
+const day = iso => (iso || '').slice(0, 10);
+const labelsOf = i => ((i.labels && i.labels.nodes) || []).map(l => l.name);
+const cycleName = c => `Cycle ${c.number}${c.name ? ` "${c.name}"` : ''}`;
 const safe = async fn => { try { return await fn(); } catch (e) { return `Linear error: ${e.message}`; } };
 
 const Q = {
@@ -44,6 +48,24 @@ const Q = {
     state { name } team { key name } project { name } assignee { name }
     labels { nodes { name } }
     comments(first: 30) { nodes { body createdAt user { name } } }
+  }
+}`,
+  // Recent work — the richest source of NEW test cases. The filter object is built
+  // by our code below; the agent only picks the numbers/team key that go into it.
+  completed: `query Completed($filter: IssueFilter!, $first: Int!) {
+  issues(filter: $filter, first: $first, orderBy: updatedAt) {
+    nodes { identifier title completedAt priorityLabel team { key } project { name } cycle { number name } labels(first: 6) { nodes { name } } }
+  }
+}`,
+  cycles: `query Cycles($filter: CycleFilter, $first: Int!) {
+  cycles(filter: $filter, first: $first, orderBy: createdAt) {
+    nodes { id number name startsAt endsAt isActive isPast progress team { key name } }
+  }
+}`,
+  cycle: `query Cycle($id: String!) {
+  cycle(id: $id) {
+    number name startsAt endsAt isActive team { key }
+    issues(first: 60) { nodes { identifier title completedAt priorityLabel state { name type } labels(first: 6) { nodes { name } } } }
   }
 }`,
   projects: `query Projects($first: Int!) { projects(first: $first) { nodes { id name status { name } url description } } }`,
@@ -104,6 +126,70 @@ export const linear = {
           '', 'Description:', trim(i.description, 6000) || '(none)',
           comments ? '\nComments:\n' + comments : '',
         ].filter(x => x !== '').join('\n'));
+      }),
+    },
+    {
+      name: 'linear_completed_issues',
+      description: 'Issues the team FINISHED recently — shipped tasks and fixed bugs (read-only), newest first. The best source of new test cases: a fixed bug becomes a regression case, a finished task an integration case. Read one in full with linear_get_issue.',
+      inputSchema: { type: 'object', properties: {
+        days: { type: 'integer', description: 'How far back, 1–120 days. Default 30.' },
+        bugsOnly: { type: 'boolean', description: 'Only issues labelled as a bug.' },
+        team: { type: 'string', description: 'Optional team key, e.g. ENG.' },
+        limit: { type: 'integer', description: '1–50, default 30.' },
+      } },
+      run: (creds, input = {}, { fetchImpl, now = Date.now() } = {}) => safe(async () => {
+        const days = Math.max(1, Math.min(120, Number.isFinite(+input.days) ? Math.floor(+input.days) : 30));
+        const filter = { completedAt: { gte: new Date(now - days * 86_400_000).toISOString() } };
+        if (input.bugsOnly === true) filter.labels = { some: { name: { containsIgnoreCase: 'bug' } } };
+        if (input.team !== undefined && input.team !== '') {
+          if (!TEAM.test(String(input.team))) return `"${String(input.team).slice(0, 40)}" is not a valid Linear team key (e.g. ENG).`;
+          filter.team = { key: { eq: String(input.team) } };
+        }
+        const first = Math.max(1, Math.min(50, Number.isFinite(+input.limit) ? Math.floor(+input.limit) : 30));
+        const d = await gql(creds, Q.completed, { filter, first }, fetchImpl);
+        const nodes = ((d.issues && d.issues.nodes) || []).sort((a, b) => (b.completedAt || '').localeCompare(a.completedAt || ''));
+        const what = `${input.bugsOnly === true ? 'bugs fixed' : 'issues completed'} in the last ${days} days${filter.team ? ` (team ${input.team})` : ''}`;
+        return wrap(what, nodes.length
+          ? nodes.map(i => { const l = labelsOf(i); return `- ${i.identifier}: ${i.title} [done ${day(i.completedAt)}${i.priorityLabel && i.priorityLabel !== 'No priority' ? ', ' + i.priorityLabel : ''}]${l.length ? ` · labels: ${l.join(', ')}` : ''}${i.cycle ? ` · ${cycleName(i.cycle)}` : ''}${i.project ? ` · project ${i.project.name}` : ''}`; }).join('\n')
+          : '(nothing finished in that window)');
+      }),
+    },
+    {
+      name: 'linear_list_cycles',
+      description: 'The team\'s recent sprints (Linear calls them cycles), newest first, with dates and progress (read-only). Use the id with linear_get_cycle to see what was done in the last one.',
+      inputSchema: { type: 'object', properties: { team: { type: 'string', description: 'Optional team key, e.g. ENG.' }, limit: { type: 'integer', description: '1–25, default 8.' } } },
+      run: (creds, input = {}, { fetchImpl, now = Date.now() } = {}) => safe(async () => {
+        let filter = null;
+        if (input.team !== undefined && input.team !== '') {
+          if (!TEAM.test(String(input.team))) return `"${String(input.team).slice(0, 40)}" is not a valid Linear team key (e.g. ENG).`;
+          filter = { team: { key: { eq: String(input.team) } } };
+        }
+        const d = await gql(creds, Q.cycles, { filter, first: 50 }, fetchImpl);
+        const started = ((d.cycles && d.cycles.nodes) || []).filter(c => Date.parse(c.startsAt) <= now)
+          .sort((a, b) => (b.startsAt || '').localeCompare(a.startsAt || '')).slice(0, clamp(input.limit, 8));
+        return wrap('cycles (sprints)', started.length
+          ? started.map(c => `- ${cycleName(c)} — team ${c.team ? c.team.key : '?'}, ${day(c.startsAt)} → ${day(c.endsAt)} [${c.isActive ? 'current' : c.isPast ? 'finished' : 'upcoming'}, ${Math.round((c.progress || 0) * 100)}% done] (id ${c.id})`).join('\n')
+          : '(this workspace has no cycles — use linear_completed_issues for recent work instead)');
+      }),
+    },
+    {
+      name: 'linear_get_cycle',
+      description: 'One sprint/cycle and its issues — which were completed and which were not (read-only). Use the id from linear_list_cycles.',
+      inputSchema: { type: 'object', properties: { id: { type: 'string', description: 'Cycle id from linear_list_cycles.' } }, required: ['id'] },
+      run: (creds, input = {}, { fetchImpl } = {}) => safe(async () => {
+        const id = String(input.id || '');
+        if (!ID.test(id)) return `"${id.slice(0, 40)}" is not a valid Linear cycle id.`;
+        const { cycle: c } = await gql(creds, Q.cycle, { id }, fetchImpl);
+        if (!c) return `No Linear cycle ${id}.`;
+        const issues = (c.issues && c.issues.nodes) || [];
+        const line = i => { const l = labelsOf(i); return `- ${i.identifier}: ${i.title} [${i.state ? i.state.name : '?'}]${l.length ? ` · labels: ${l.join(', ')}` : ''}`; };
+        const done = issues.filter(i => i.completedAt || (i.state && i.state.type === 'completed'));
+        const rest = issues.filter(i => !done.includes(i));
+        return wrap(cycleName(c), [
+          `${cycleName(c)} — team ${c.team ? c.team.key : '?'}, ${day(c.startsAt)} → ${day(c.endsAt)}${c.isActive ? ' (current)' : ''}`,
+          `\nCompleted (${done.length}):`, done.length ? done.map(line).join('\n') : '(none)',
+          `\nNot completed (${rest.length}):`, rest.length ? rest.map(line).join('\n') : '(none)',
+        ].join('\n'));
       }),
     },
     {
