@@ -181,6 +181,7 @@
   .bpconn b { color:var(--ink); }
   .bpconn ul { margin:6px 0 0; padding-left:18px; }
   #viewFrame, #casesFrame { width:100%; border:0; min-height:400px; background:transparent; display:block; }
+  .cases-intro { max-width:760px; }
   .cases-empty { max-width:860px; margin:0 0 18px; padding:18px 20px; border:1.5px dashed var(--line); border-radius:10px; }
   .cases-empty p { margin:0 0 12px; color:var(--slate); }
   .cases-empty b { color:var(--ink); }
@@ -390,7 +391,7 @@
     <div class="tabs-wrap hide" id="cols">
       <div class="tabs" role="tablist" aria-label="Blueprint views">
         <button role="tab" class="tab" id="tabBlueprint" data-pane="paneBlueprint" aria-selected="true">Blueprint</button>
-        <button role="tab" class="tab" id="tabCases" data-pane="paneCases" aria-selected="false">Test cases <span class="tab-n hide" id="casesN"></span></button>
+        <button role="tab" class="tab" id="tabCases" data-pane="paneCases" aria-selected="false">Proposed cases <span class="tab-n hide" id="casesN"></span></button>
         <button role="tab" class="tab" id="tabAnswers" data-pane="paneAnswers" aria-selected="false">Build <span class="tab-n hide" id="changedN"></span></button>
         <button role="tab" class="tab" id="tabPackage" data-pane="panePackage" aria-selected="false">Package <span class="tab-n hide" id="pkgN"></span></button>
         <button role="tab" class="tab" id="tabLog" data-pane="paneLog" aria-selected="false">Build log</button>
@@ -403,15 +404,16 @@
         </div>
       </section>
       <section class="pane hide" id="paneCases" role="tabpanel" aria-labelledby="tabCases">
+        <p class="sub pane-intro cases-intro">Test cases you propose for this app. They go to SmartMonkey with the blueprint in the package; SmartMonkey sorts them into suites, fills the gaps and turns them into the test cases it runs — those you manage in SmartMonkey under <b>Test cases</b>. Edit, add or delete them here; changes save on their own.</p>
         <div class="cases-empty hide" id="casesEmpty">
-          <p><b>No test cases in this blueprint yet.</b> SmartMonkey can write them with your AI from the blueprint, the files in your package and your connected tools — or add your own below.</p>
-          <button id="genCases2">Generate test cases</button>
+          <p><b>No proposed cases yet.</b> Your AI can propose them from this blueprint, the files in your package and your connected tools — or add your own below.</p>
+          <button id="genCases2">Propose cases</button>
         </div>
-        <iframe id="casesFrame" title="Test cases" scrolling="no"></iframe>
+        <iframe id="casesFrame" title="Proposed cases" scrolling="no"></iframe>
       </section>
       <section class="pane hide" id="paneAnswers" role="tabpanel" aria-labelledby="tabAnswers">
         <div class="bp-acts build-acts" id="bpActs">
-          <button id="genCases" class="hide">Generate test cases</button>
+          <button id="genCases" class="hide">Propose cases</button>
           <button id="buildOn" class="ghost hide">Build on this</button>
           <button id="makeCurrent" class="ghost hide">Make current</button>
           <button id="deleteBp" class="ghost hide">Delete</button>
@@ -426,7 +428,7 @@
         </div>
       </section>
       <section class="pane hide" id="panePackage" role="tabpanel" aria-labelledby="tabPackage">
-        <p class="sub pane-intro">What goes to SmartMonkey, in one .zip: this blueprint, its test cases if it has any, and the documents and screenshots you add here. Nothing is added for you — only what you put here leaves this machine.</p>
+        <p class="sub pane-intro">What goes to SmartMonkey, in one .zip: this blueprint, its proposed cases if it has any, and the documents and screenshots you add here. Nothing is added for you — only what you put here leaves this machine.</p>
         <label class="drop" id="pkgDrop">
           <input type="file" id="pkgInput" multiple accept=".md,.txt,.pdf,.html,.htm,.csv,.json,.png,.jpg,.jpeg,.webp">
           <b>Add documents or screenshots</b>
@@ -548,8 +550,8 @@ async function startBuild(opts = {}) {
     return;
   }
   $('log').textContent = ''; $('asks').innerHTML = ''; $('buildMascot').classList.add('hide'); $('buildClose').classList.add('hide'); $('log').classList.remove('hide');
-  $('buildSub').textContent = opts.cases ? 'SmartMonkey reads this blueprint and the files in your package, asks a question or two, and writes the test cases. The blueprint itself does not change.' : opts.reviewed ? 'SmartMonkey updates the blueprint for the answers you changed. It only asks if a change raises something new.' : 'SmartMonkey reads your repo, then asks you a few questions here. Just click an answer.';
-  $('buildPanel').classList.remove('hide'); $('buildTitle').textContent = opts.cases ? 'Writing test cases' : opts.reviewed ? 'Rebuilding with your answers' : opts.basedOn ? 'Building on the selected blueprint' : 'Building a new blueprint';
+  $('buildSub').textContent = opts.cases ? 'Your AI reads this blueprint and the files in your package, asks a question or two, and proposes test cases. The blueprint itself does not change.' : opts.reviewed ? 'SmartMonkey updates the blueprint for the answers you changed. It only asks if a change raises something new.' : 'SmartMonkey reads your repo, then asks you a few questions here. Just click an answer.';
+  $('buildPanel').classList.remove('hide'); $('buildTitle').textContent = opts.cases ? 'Proposing cases' : opts.reviewed ? 'Rebuilding with your answers' : opts.basedOn ? 'Building on the selected blueprint' : 'Building a new blueprint';
   $('empty').classList.add('hide');
   RUNNING = true; WORK.startedAt = Date.now(); WORK.activity = 'Starting up'; setWorking();
   $('buildPanel').scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -740,9 +742,9 @@ for (const t of ['text', 'tool', 'answered', 'ask', 'connections', 'done', 'stop
       // the monkey reacts: happy when it finished, sad when it failed
       const casesRun = d && d.kind === 'cases';
       const wrote = t === 'done' && (casesRun ? d.cases != null : !(d && d.blueprint === false));
-      if (t === 'done' && casesRun) $('buildTitle').textContent = wrote ? `${plural(d.cases, 'test case', 'test cases')} in this blueprint` : 'No test cases were written';
+      if (t === 'done' && casesRun) $('buildTitle').textContent = wrote ? `${plural(d.cases, 'proposed case', 'proposed cases')} in this blueprint` : 'No cases were proposed';
       else if (t === 'done' && !wrote) $('buildTitle').textContent = 'Build finished without a blueprint';
-      $('buildSub').textContent = t === 'done' && casesRun ? (wrote ? 'They are in the Test cases tab, where you can edit them, and they go in the package.' : 'The run ended without writing cases.json. The log below shows how far it got; the blueprint is as it was.') : t === 'done' ? (wrote ? 'Your blueprint is ready — it opens below, with your answers.' : 'The build ended without writing a blueprint, so the one you had before is still current. The log below shows how far it got.') : t === 'stopped' ? 'You stopped this build. The blueprint you had before is still current.' : 'The blueprint you had before is still current. The log below says what went wrong.';
+      $('buildSub').textContent = t === 'done' && casesRun ? (wrote ? 'They are in the Proposed cases tab, where you can edit them, and they go to SmartMonkey in the package.' : 'The run ended without writing cases.json. The log below shows how far it got; the blueprint is as it was.') : t === 'done' ? (wrote ? 'Your blueprint is ready — it opens below, with your answers.' : 'The build ended without writing a blueprint, so the one you had before is still current. The log below shows how far it got.') : t === 'stopped' ? 'You stopped this build. The blueprint you had before is still current.' : 'The blueprint you had before is still current. The log below says what went wrong.';
       $('buildClose').classList.remove('hide'); $('log').classList.add('hide');   // the log stays under "Build log"
       if (t !== 'stopped') { $('buildMascot').src = `/mascot/${wrote ? 'happy' : 'sad'}.png`; $('buildMascot').classList.remove('hide'); }
       if (t === 'done' && d && d.kind === 'cases') showTab('tabCases');   // straight to what was just written
@@ -876,7 +878,7 @@ function renderBpList() {
     if (b.current) when.appendChild(el('span', 'cur', 'current'));
     btn.appendChild(when);
     const c = b.counts;
-    const caseBit = b.casesRun && b.casesRun.status === 'running' ? ' · writing cases' : b.cases && b.cases.count ? ` · ${plural(b.cases.count, 'case', 'cases')}` : '';
+    const caseBit = b.casesRun && b.casesRun.status === 'running' ? ' · proposing cases' : b.cases && b.cases.count ? ` · ${b.cases.count} proposed` : '';
     btn.appendChild(el('span', 'bp-sub', b.status === 'running' ? 'Building now' : c ? `${plural(c.screens, 'screen', 'screens')} · ${plural(c.flows, 'flow', 'flows')}${caseBit}${b.status !== 'done' ? ` · ${STATUS[b.status]}` : ''}` : `${STATUS[b.status] || b.status} · no blueprint`));
     btn.onclick = () => showBlueprint(b.id);
     li.appendChild(btn); ul.appendChild(li);
@@ -889,7 +891,7 @@ function syncActions() {
   $('buildOn').classList.toggle('hide', !has || RUNNING);
   $('genCases').classList.toggle('hide', !has || RUNNING);
   for (const id of ['downloadPkg', 'downloadPkg2']) if (RUNNING) $(id).classList.add('hide'); else if (has) $(id).classList.remove('hide');
-  if (b) $('genCases').textContent = b.cases && b.cases.count ? 'Add test cases' : 'Generate test cases';
+  if (b) $('genCases').textContent = b.cases && b.cases.count ? 'Propose more cases' : 'Propose cases';
   $('makeCurrent').classList.toggle('hide', !has || !b || b.current || RUNNING);
   $('deleteBp').classList.toggle('hide', !b || b.status === 'running' || RUNNING);
 }
@@ -1035,7 +1037,7 @@ async function loadPackage() {
   const ul = $('pkgList'); ul.innerHTML = '';
   const fixed = (kind, name, note) => { const li = el('li', 'fixed'); li.appendChild(el('span', 'pkg-kind', kind)); li.appendChild(el('span', 'pkg-name', name)); li.appendChild(el('span', 'pkg-size', note)); ul.appendChild(li); };
   if (hasBp) fixed('Blueprint', 'blueprint.json', 'always included');
-  if (hasCases) fixed('Test cases', 'cases.json', 'from this build');
+  if (hasCases) fixed('Proposed cases', 'cases.json', 'from this build');
   for (const f of r.files) {
     const li = el('li');
     li.appendChild(el('span', 'pkg-kind', f.kind === 'doc' ? 'Document' : 'Screenshot'));

@@ -450,14 +450,12 @@ function renderCases() {
   const mount = document.getElementById("cases");
   if (!mount) return;
   if (!CASES.length && !BLUEPRINT) { mount.innerHTML = ""; return; }
-  mount.innerHTML = `<div class="card"><h2>Test cases <span class="n">${CASES.length}</span>
+  mount.innerHTML = `<div class="card"><h2>${BUILD_ID ? "Proposed cases" : "Test cases"} <span class="n">${CASES.length}</span>${BUILD_ID ? `<span class="tc-status" id="tc-status"></span>` : ""}
       <span style="margin-left:auto;display:inline-flex;gap:8px">
         <button class="tc-btn" id="tc-add">+ Add case</button>
-        <button class="tc-btn tc-primary" id="tc-save">Download cases.json</button>
+        ${BUILD_ID ? "" : `<button class="tc-btn tc-primary" id="tc-save">Download cases.json</button>`}
       </span></h2>
-    <p class="desc">${BUILD_ID
-      ? `Edit here — changes save automatically, and the cases go to SmartMonkey inside the package (<b>Download package</b>). <span class="tc-status" id="tc-status"></span>`
-      : `Edit here, then download <b>cases.json</b> and import it in SmartMonkey (Test cases → Import JSON → choose file). Nothing is uploaded from this page.`}</p>
+    ${BUILD_ID ? "" : `<p class="desc">Edit here, then download <b>cases.json</b> and import it in SmartMonkey (Test cases → Import JSON → choose file). Nothing is uploaded from this page.</p>`}
     ${CASES.length ? CASES.map(caseCard).join("") : empty("No cases yet — click “+ Add case”, or drop a cases.json here.")}
   </div>`;
 }
