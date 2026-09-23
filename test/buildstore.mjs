@@ -118,5 +118,34 @@ check('list is newest first; ids are path-safe', () => {
   assert.throws(() => store.get('../../etc'), /unknown build/);
 });
 
+check('edited cases save into the build, and into smartmonkey/ only when it is the current one', () => {
+  const { kit, store } = fresh();
+  store.prepareStart({}); const a = store.create({}); writeFileSync(join(kit, 'blueprint.json'), bp(1)); store.finish(a, 'done');
+  store.prepareStart({}); const b = store.create({}); writeFileSync(join(kit, 'blueprint.json'), bp(2)); store.finish(b, 'done');
+  store.saveCases(b, [{ id: 'TC-1', title: 'x' }]);
+  assert.deepEqual(JSON.parse(read(join(kit, 'builds', b, 'cases.json'))), [{ id: 'TC-1', title: 'x' }]);
+  assert.deepEqual(JSON.parse(read(join(kit, 'cases.json'))), [{ id: 'TC-1', title: 'x' }], 'current → mirrored');
+  store.saveCases(a, [{ id: 'OLD' }]);
+  assert.match(read(join(kit, 'cases.json')), /TC-1/, 'an older build never overwrites the current files');
+  assert.throws(() => store.saveCases(b, 'nope'), /list/);
+  store.prepareStart({}); const c = store.create({});
+  assert.throws(() => store.saveCases(c, []), /running/);
+});
+
+check('answering an open question writes it into the blueprint (≤400 chars); empty clears it', () => {
+  const { kit, store } = fresh();
+  store.prepareStart({}); const a = store.create({}); writeFileSync(join(kit, 'blueprint.json'), bp(1)); store.finish(a, 'done');
+  store.answerOpenQuestion(a, 1, 'Android 13 or newer');
+  const saved = JSON.parse(read(join(kit, 'blueprint.json')));
+  assert.equal(saved.openQuestions[1].answer, 'Android 13 or newer');
+  assert.equal(JSON.parse(read(join(kit, 'builds', a, 'blueprint.json'))).openQuestions[1].answer, 'Android 13 or newer');
+  assert.equal(store.get(a).meta.answeredOpen, 1);
+  store.answerOpenQuestion(a, 1, 'x'.repeat(900));
+  assert.equal(JSON.parse(read(join(kit, 'blueprint.json'))).openQuestions[1].answer.length, 400);
+  store.answerOpenQuestion(a, 1, '');
+  assert.equal('answer' in JSON.parse(read(join(kit, 'blueprint.json'))).openQuestions[1], false);
+  assert.throws(() => store.answerOpenQuestion(a, 9, 'x'), /no such open question/);
+});
+
 if (failures) { console.error(`\n${failures} failure(s)`); process.exit(1); }
 console.log('\nbuildstore: all passed');

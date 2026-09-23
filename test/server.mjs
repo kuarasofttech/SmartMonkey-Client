@@ -807,5 +807,53 @@ await check('a blueprint from before build history shows the answers given while
   app.server.close();
 });
 
+await check('rebuild: reviewed answers carry into the new build WITH their options; the prompt is a rebuild, not an interview', async () => {
+  const cwd = mkdtempSync(join(tmpdir(), 'sm-app-'));
+  const kit = join(cwd, 'smartmonkey'); mkdirSync(kit, { recursive: true });
+  writeFileSync(join(kit, 'blueprint.json'), JSON.stringify({ smartmonkeyBlueprint: 1, screens: [], openQuestions: [{ question: 'OS?' }] }));
+  let got = null;
+  const runCli = ({ prompt, onDone }) => { got = prompt; setTimeout(onDone, 30); return { launched: true, headless: true }; };
+  const app = createApp({ cwd, secrets: makeSecrets({ platform: 'win32' }), detectDrivers: () => [{ id: 'claude', bin: 'claude', label: 'Claude Code' }], runCli });
+  const port = await app.listen(0);
+  await req(port, 'POST', '/api/ai', { mode: 'cli', driver: 'claude' });
+  const [base] = (await req(port, 'GET', '/api/builds')).json.builds;
+  assert.equal((await req(port, 'POST', '/api/generate', { reviewed: [{ question: 'Which build?' }] })).status, 400, 'a rebuild needs a blueprint to update');
+  const reviewed = [
+    { question: 'Which build should a tester use?', options: ['devDebug', 'release'], picked: ['release'], changed: true },
+    { question: 'How broad should testing go?', options: ['Smoke', 'Broad'], picked: ['Smoke'], changed: false },
+  ];
+  assert.equal((await req(port, 'POST', '/api/generate', { basedOn: base.id, reviewed })).status, 202);
+  await waitFor(() => got);
+  assert.match(got, /A rebuild: the owner reviewed their answers/);
+  assert.match(got, /Changed — update the blueprint for these first:\*\*\n\n- \*\*Which build should a tester use\?\*\* → release/);
+  assert.match(got, /Unchanged — still true/);
+  assert.doesNotMatch(got, /How the interview works here/, 'no interview on a rebuild');
+  assert.match(got, /This build starts from a previous blueprint/);
+  for (let i = 0; i < 100; i++) { if ((await req(port, 'GET', '/api/status')).json.run.status !== 'running') break; await new Promise(r => setTimeout(r, 20)); }
+  const [latest] = (await req(port, 'GET', '/api/builds')).json.builds;
+  const ev = (await req(port, 'GET', `/api/builds/${latest.id}`)).json.events.filter(e => e.type === 'answered');
+  assert.equal(ev.length, 2);
+  assert.deepEqual(ev[0].data.options, ['devDebug', 'release'], 'options kept for the next review');
+  assert.equal(ev[0].data.changed, true); assert.deepEqual(ev[0].data.picked, ['release']);
+  app.server.close();
+});
+
+await check('edits save through the API: cases and open-question answers land in the build', async () => {
+  const cwd = mkdtempSync(join(tmpdir(), 'sm-app-'));
+  const kit = join(cwd, 'smartmonkey'); mkdirSync(kit, { recursive: true });
+  writeFileSync(join(kit, 'blueprint.json'), JSON.stringify({ smartmonkeyBlueprint: 1, screens: [], openQuestions: [{ question: 'OS?', options: ['13+', '12-'] }] }));
+  const app = createApp({ cwd, secrets: makeSecrets({ platform: 'win32' }) });
+  const port = await app.listen(0);
+  const [b] = (await req(port, 'GET', '/api/builds')).json.builds;
+  assert.equal((await req(port, 'PUT', `/api/builds/${b.id}/cases`, { cases: [{ id: 'TC-1', title: 'Login' }] })).status, 200);
+  assert.deepEqual(JSON.parse(readFileSync(join(kit, 'cases.json'), 'utf8')), [{ id: 'TC-1', title: 'Login' }]);
+  const r = await req(port, 'PUT', `/api/builds/${b.id}/open-question`, { index: 0, answer: '13+' });
+  assert.equal(r.status, 200); assert.equal(r.json.question.answer, '13+');
+  assert.equal(JSON.parse(readFileSync(join(kit, 'blueprint.json'), 'utf8')).openQuestions[0].answer, '13+');
+  assert.equal((await req(port, 'PUT', `/api/builds/${b.id}/open-question`, { index: 7, answer: 'x' })).status, 404);
+  assert.equal((await req(port, 'PUT', `/api/builds/${b.id}/cases`, { cases: 'no' })).status, 400);
+  app.server.close();
+});
+
 if (failures) { console.error(`\n${failures} failure(s)`); process.exit(1); }
 console.log('\nserver: all passed');

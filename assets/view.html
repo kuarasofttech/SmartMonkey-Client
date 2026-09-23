@@ -93,6 +93,16 @@
   .card h2 { display: flex; align-items: center; }
   .tc-btn { background: var(--chip); color: var(--ink); border: 1px solid var(--line); border-radius: 8px; padding: 5px 12px; font-size: 13px; cursor: pointer; }
   .tc-btn.tc-primary { background: var(--brand); color: #fff; border-color: var(--brand); }
+  .tc-status, .oq-status { font-size: 12px; font-weight: 600; color: var(--ok); margin-left: 6px; }
+  .tc-status.bad, .oq-status.bad { color: var(--danger); }
+  .oq-answer { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 8px; }
+  .oq-opt { background: var(--chip); color: var(--ink); border: 1px solid var(--line); border-radius: 999px; padding: 4px 12px; font: inherit; font-size: 13px; cursor: pointer; }
+  .oq-opt:hover { border-color: var(--brand); }
+  .oq-opt.on { background: var(--ok-soft); color: var(--ok); border-color: var(--ok); font-weight: 600; }
+  .oq-own { display: inline-flex; gap: 6px; flex: 1; min-width: 220px; }
+  .oq-text { flex: 1; min-width: 0; padding: 5px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--raised); color: var(--ink); font: inherit; font-size: 13px; }
+  .oq-clear { background: none; border: 0; color: var(--muted); font: inherit; font-size: 12px; cursor: pointer; text-decoration: underline; }
+  .oq-done { box-shadow: inset 3px 0 0 var(--ok); padding-left: 12px; }
   .tc-case { border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; margin: 10px 0; }
   .tc-head { display: flex; gap: 8px; align-items: center; margin-bottom: 8px; }
   .tc-fields { display: flex; gap: 14px; flex-wrap: wrap; margin-bottom: 8px; }
@@ -270,19 +280,66 @@ function renderFindings(p) {
     `<ul class="findings">${f.map(x => `<li><b>${esc(x.topic || "note")}:</b> ${esc(txt(x.claim || x))} ${src(x)}</li>`).join("")}</ul>`);
 }
 
+// Inside the SmartMonkey app (?embed=1 with a build's blueprint) edits SAVE into that
+// build; opened on its own it stays a read-only view with a cases download.
+const BUILD_ID = (() => { const p = new URLSearchParams(location.search); const m = /^builds\/([\w-]+)\/blueprint\.json$/.exec(p.get("src") || ""); return p.get("embed") && m ? m[1] : null; })();
+async function saveTo(what, body) {
+  const r = await fetch(`/api/builds/${encodeURIComponent(BUILD_ID)}/${what}`, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok || !j.ok) throw new Error(j.error || `HTTP ${r.status}`);
+  return j;
+}
+
+function oqRow(x, i) {
+  const blk = x.blocks && x.blocks !== "nothing" ? badge(x.blocks === "run" ? "b-danger" : "b-warn", `blocks ${x.blocks}`) : "";
+  const options = Array.isArray(x.options) ? x.options : [];
+  const answer = x.answer ? txt(x.answer) : "";
+  let controls;
+  if (BUILD_ID) {
+    const typed = answer && !options.includes(answer) ? answer : "";
+    controls = `<div class="oq-answer">
+      ${options.map(o => `<button class="oq-opt${o === answer ? " on" : ""}" data-oq="${i}" data-val="${esc(o)}">${esc(o)}</button>`).join("")}
+      <span class="oq-own"><input class="oq-text" data-oq="${i}" maxlength="400" placeholder="${options.length ? "Or your own answer" : "Your answer"}" value="${esc(typed)}"><button class="tc-btn" data-oq-save="${i}">Save</button></span>
+      ${answer ? `<button class="oq-clear" data-oq-clear="${i}">Clear answer</button>` : ""}
+      <span class="oq-status" id="oq-st-${i}">${answer ? "✓ Answered" : ""}</span>
+    </div>`;
+  } else {
+    controls = (options.length ? `<p class="desc">Choose: ${options.map(o => `<span class="badge b-mute">${esc(o)}</span>`).join(" ")}</p>` : "")
+      + (answer ? `<p class="desc" style="color:var(--ok)">Answered: ${esc(answer)}</p>` : "");
+  }
+  return `<div class="row${answer ? " oq-done" : ""}" id="oq-${i}"><div class="head"><span class="name">${esc(txt(x.question || x))}</span>${blk}</div>${x.whyItMatters ? `<p class="desc">${esc(txt(x.whyItMatters))}</p>` : ""}${controls}</div>`;
+}
+
 function renderOpenQuestions(p) {
   const q = arr(p.openQuestions);
   if (!q.length) return "";
-  const body = q.map(x => {
-    const blk = x.blocks && x.blocks !== "nothing" ? badge(x.blocks === "run" ? "b-danger" : "b-warn", `blocks ${x.blocks}`) : "";
-    const opts = Array.isArray(x.options) && x.options.length
-      ? `<p class="desc">Choose: ${x.options.map(o => `<span class="badge b-mute">${esc(o)}</span>`).join(" ")}</p>` : "";
-    const ans = x.answer ? `<p class="desc" style="color:var(--ok)">Answered: ${esc(txt(x.answer))}</p>` : "";
-    return `<div class="row"><div class="head"><span class="name">${esc(txt(x.question || x))}</span>${blk}</div>${x.whyItMatters ? `<p class="desc">${esc(txt(x.whyItMatters))}</p>` : ""}${opts}${ans}</div>`;
-  }).join("");
+  const answered = q.filter(x => x && x.answer).length;
   return card("Open questions for the owner", q.length,
-    `<p class="desc">You answer these in SmartMonkey after uploading — they're the things the code couldn't settle.</p>${body}`);
+    `<p class="desc">${BUILD_ID
+      ? `The things the code couldn't settle. Answer them here — each answer is saved into this blueprint and goes with it when you upload.${answered ? ` <b>${answered} of ${q.length} answered.</b>` : ""}`
+      : "You answer these in SmartMonkey after uploading — they're the things the code couldn't settle."}</p>${q.map(oqRow).join("")}`);
 }
+
+async function answerOq(i, value) {
+  const st = document.getElementById("oq-st-" + i); if (st) st.textContent = "Saving…";
+  try {
+    const { question } = await saveTo("open-question", { index: i, answer: value });
+    BLUEPRINT.openQuestions[i] = question;
+    document.getElementById("oq-" + i).outerHTML = oqRow(question, i);
+    const n = BLUEPRINT.openQuestions.filter(x => x && x.answer).length;
+    const desc = document.querySelector("#oq-0") && document.querySelector("#oq-0").parentElement.querySelector(":scope > p.desc");
+    if (desc) desc.innerHTML = `The things the code couldn't settle. Answer them here — each answer is saved into this blueprint and goes with it when you upload.${n ? ` <b>${n} of ${BLUEPRINT.openQuestions.length} answered.</b>` : ""}`;
+  } catch (e) { if (st) { st.textContent = "Couldn't save: " + e.message; st.classList.add("bad"); } }
+}
+document.getElementById("app").addEventListener("click", e => {
+  const b = e.target.closest("button"); if (!b || !BUILD_ID) return;
+  if (b.dataset.oq !== undefined && b.dataset.val !== undefined) return answerOq(Number(b.dataset.oq), b.dataset.val);
+  if (b.dataset.oqSave !== undefined) { const i = Number(b.dataset.oqSave); const t = document.querySelector(`.oq-text[data-oq="${i}"]`); if (t && t.value.trim()) answerOq(i, t.value.trim()); }
+  if (b.dataset.oqClear !== undefined) answerOq(Number(b.dataset.oqClear), "");
+});
+document.getElementById("app").addEventListener("keydown", e => {
+  if (e.key === "Enter" && e.target.classList.contains("oq-text") && e.target.value.trim()) answerOq(Number(e.target.dataset.oq), e.target.value.trim());
+});
 
 // ---- top-level render --------------------------------------------------------
 function render(p) {
@@ -396,41 +453,62 @@ function renderCases() {
         <button class="tc-btn" id="tc-add">+ Add case</button>
         <button class="tc-btn tc-primary" id="tc-save">Download cases.json</button>
       </span></h2>
-    <p class="desc">Edit here, then download <b>cases.json</b> and import it in SmartMonkey (Test cases → Import JSON → choose file). Nothing is uploaded from this page.</p>
+    <p class="desc">${BUILD_ID
+      ? `Edit here — changes save automatically into this blueprint. To send them to SmartMonkey, download <b>cases.json</b> and import it there (Test cases → Import JSON). <span class="tc-status" id="tc-status"></span>`
+      : `Edit here, then download <b>cases.json</b> and import it in SmartMonkey (Test cases → Import JSON → choose file). Nothing is uploaded from this page.`}</p>
     ${CASES.length ? CASES.map(caseCard).join("") : empty("No cases yet — click “+ Add case”, or drop a cases.json here.")}
   </div>`;
 }
 
-function downloadCases() {
-  syncCasesFromDOM();
-  const out = CASES.map(c => {
+function cleanCases() {
+  return CASES.map(c => {
     const o = { ...c };
     if (!o.requires) delete o.requires;
     o.steps = arr(o.steps).filter(s => s && s.do);
     if (!o.goal) delete o.goal;
     return o;
   });
+}
+function downloadCases() {
+  syncCasesFromDOM();
+  const out = cleanCases();
   const blob = new Blob([JSON.stringify(out, null, 2)], { type: "application/json" });
   const a = document.createElement("a");
   a.href = URL.createObjectURL(blob); a.download = "cases.json";
   a.click(); URL.revokeObjectURL(a.href);
 }
 
+// In the app, every edit saves (debounced) — the file you upload is the edited one.
+let saveTimer = null;
+function scheduleSave() {
+  if (!BUILD_ID) return;
+  clearTimeout(saveTimer);
+  const st = document.getElementById("tc-status"); if (st) { st.textContent = "Saving…"; st.classList.remove("bad"); }
+  saveTimer = setTimeout(async () => {
+    syncCasesFromDOM();
+    const st2 = () => document.getElementById("tc-status");
+    try { await saveTo("cases", { cases: cleanCases() }); if (st2()) st2().textContent = "✓ Saved"; }
+    catch (e) { if (st2()) { st2().textContent = "Couldn't save: " + e.message; st2().classList.add("bad"); } }
+  }, 700);
+}
+document.getElementById("cases").addEventListener("input", scheduleSave);
+document.getElementById("cases").addEventListener("change", scheduleSave);
+
 // One delegated click handler for the whole editor.
 document.getElementById("cases").addEventListener("click", e => {
   const btn = e.target.closest("button"); if (!btn) return;
   const act = btn.dataset.act;
   if (btn.id === "tc-save") return downloadCases();
-  if (btn.id === "tc-add") { syncCasesFromDOM(); CASES.push({ id: "TC-" + (CASES.length + 1), title: "", priority: "medium", steps: [{ do: "" }], expected: "" }); return renderCases(); }
+  if (btn.id === "tc-add") { syncCasesFromDOM(); CASES.push({ id: "TC-" + (CASES.length + 1), title: "", priority: "medium", steps: [{ do: "" }], expected: "" }); renderCases(); return scheduleSave(); }
   const cardEl = btn.closest(".tc-case"); if (!cardEl) return;
   const i = Number(cardEl.dataset.i);
   syncCasesFromDOM();
-  if (act === "del-case") { CASES.splice(i, 1); renderCases(); }
+  if (act === "del-case") { CASES.splice(i, 1); renderCases(); scheduleSave(); }
   else if (act === "add-step") { CASES[i].steps = arr(CASES[i].steps); CASES[i].steps.push({ do: "" }); renderCases(); }
   else if (act === "del-step") {
     const row = btn.closest(".tc-step");
     const idx = [...cardEl.querySelectorAll(".tc-step")].indexOf(row);
-    CASES[i].steps.splice(idx, 1); renderCases();
+    CASES[i].steps.splice(idx, 1); renderCases(); scheduleSave();
   }
 });
 

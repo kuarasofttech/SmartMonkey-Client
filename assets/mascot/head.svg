@@ -1,0 +1,41 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256" role="img" aria-label="SmartMonkey">
+  <!-- head only, transparent background: fills the canvas, no brand tile -->
+  <!-- Vector of the canonical mascot head (mascot/views/front.png), geometry measured from the render so the icon and the
+       3D character stay the same character. Sizes/positions in a 256 tile; brand green tile like the other console icons. -->
+  <defs>
+    <linearGradient id="sk" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FFFFFF"/><stop offset="1" stop-color="#DCE3EA"/>
+    </linearGradient>
+    <linearGradient id="vz" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#232A38"/><stop offset="1" stop-color="#0E121B"/>
+    </linearGradient>
+  </defs>
+
+  <g transform="translate(128 128) scale(1.28) translate(-128 -119.2)">
+  <!-- antenna -->
+  <path d="M128 70 V56" stroke="#C7D0D8" stroke-width="3.4" stroke-linecap="round"/>
+  <circle cx="128" cy="52" r="4.6" fill="#E8EDF2"/>
+
+  <!-- ears: white shell + mint inner plate -->
+  <g>
+    <circle cx="57" cy="142" r="25" fill="url(#sk)" stroke="#C3CCD6" stroke-width="2"/>
+    <circle cx="52" cy="142" r="12.5" fill="#63D9AC"/>
+    <circle cx="199" cy="142" r="25" fill="url(#sk)" stroke="#C3CCD6" stroke-width="2"/>
+    <circle cx="204" cy="142" r="12.5" fill="#63D9AC"/>
+  </g>
+
+  <!-- head -->
+  <ellipse cx="128" cy="129" rx="67" ry="62" fill="url(#sk)" stroke="#C3CCD6" stroke-width="2"/>
+
+  <!-- visor: mask-shaped dark band with two mint LED eyes -->
+  <rect x="74" y="106" width="108" height="70" rx="33" fill="url(#vz)"/>
+  <circle cx="101" cy="137" r="12.5" fill="#4FE3B0"/>
+  <circle cx="155" cy="137" r="12.5" fill="#4FE3B0"/>
+
+  <!-- muzzle: rounded white snout with nostrils and mouth line (what makes it read as a monkey) -->
+  <rect x="94" y="155" width="68" height="34" rx="17" fill="#FBFDFE" stroke="#C9D2DA" stroke-width="1.5"/>
+  <circle cx="121" cy="167" r="2.6" fill="#97A1B0"/>
+  <circle cx="135" cy="167" r="2.6" fill="#97A1B0"/>
+  <path d="M116 178 Q128 181 140 178" stroke="#97A1B0" stroke-width="2.6" fill="none" stroke-linecap="round"/>
+</g>
+</svg>

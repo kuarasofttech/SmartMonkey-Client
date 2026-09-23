@@ -13,7 +13,7 @@ import { suggestFor, previousAnswers } from './prefill.mjs';
 import { makeWebAsk, answerAsk, makeWebConnections, setConnection, startConnections } from './webask.mjs';
 import { makePopTerminalRunCli } from './terminal.mjs';
 import { makeHeadlessRunCli } from './headless.mjs';
-import { QUESTIONS, normalizeAnswers, servicesFor, answersBlock, runBlock, basedOnBlock } from './interview.mjs';
+import { QUESTIONS, normalizeAnswers, servicesFor, answersBlock, runBlock, basedOnBlock, normalizeReviewed, rebuildBlock } from './interview.mjs';
 import { makeSecrets } from './secrets.mjs';
 import * as embed from './embed.mjs';
 import { DRIVERS, detectDrivers as defaultDetectDrivers } from './drivers.mjs';
@@ -24,9 +24,9 @@ import { CONNECTORS, COMING_LATER, findConnector, findTool, allTools } from './c
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ASSETS = existsSync(join(__dirname, 'assets')) ? join(__dirname, 'assets') : resolve(__dirname, '../src/assets/blueprint-kit');
 const PROMPT = () => readFileSync(join(ASSETS, 'builder-prompt.md'), 'utf8');
-const MIME = { '.html': 'text/html; charset=utf-8', '.json': 'application/json', '.mjs': 'text/javascript', '.js': 'text/javascript', '.css': 'text/css', '.md': 'text/markdown; charset=utf-8' };
+const MIME = { '.html': 'text/html; charset=utf-8', '.json': 'application/json', '.mjs': 'text/javascript', '.js': 'text/javascript', '.css': 'text/css', '.md': 'text/markdown; charset=utf-8', '.svg': 'image/svg+xml', '.png': 'image/png' };
 
-const readBody = req => new Promise((res) => { let b = ''; req.on('data', c => { if (b.length <= 1_000_000) b += c; }); req.on('end', () => { try { res(b ? JSON.parse(b) : {}); } catch { res({}); } }); });
+const readBody = req => new Promise((res) => { let b = ''; req.on('data', c => { if (b.length <= 4_000_000) b += c; }); req.on('end', () => { try { res(b ? JSON.parse(b) : {}); } catch { res({}); } }); });
 const sendJson = (res, obj, code = 200) => { res.writeHead(code, { 'content-type': 'application/json' }); res.end(JSON.stringify(obj)); };
 const writeSse = (res, ev) => res.write(`event: ${ev.type}\ndata: ${JSON.stringify(ev.data)}\n\n`);
 
@@ -255,10 +255,17 @@ export function createApp({ cwd = process.cwd(), secrets = makeSecrets(), modelF
     if (path === '/api/builds' && method === 'GET') {
       return sendJson(res, { builds: builds.list() });
     }
-    const bm = path.match(/^\/api\/builds\/([^/]+)(\/current)?$/);
+    const bm = path.match(/^\/api\/builds\/([^/]+)(\/current|\/cases|\/open-question)?$/);
     if (bm) {
       const id = decodeURIComponent(bm[1]);
       try {
+        // Edits made in the blueprint view save into the build (not download-only).
+        if (method === 'PUT' && (bm[2] === '/cases' || bm[2] === '/open-question')) {
+          if (session.running) return sendJson(res, { error: 'a build is running — edits save once it finishes' }, 409);
+          const body = await readBody(req);
+          if (bm[2] === '/cases') { builds.saveCases(id, body.cases); return sendJson(res, { ok: true }); }
+          return sendJson(res, { ok: true, question: builds.answerOpenQuestion(id, body.index, body.answer) });
+        }
         if (method === 'GET' && !bm[2]) {
           const b = builds.get(id);
           // A blueprint from before build history has no answer events — but the answers
@@ -269,7 +276,7 @@ export function createApp({ cwd = process.cwd(), secrets = makeSecrets(), modelF
         if (method === 'POST' && bm[2]) { if (session.running) return sendJson(res, { error: 'a build is running' }, 409); builds.makeCurrent(id); return sendJson(res, { ok: true }); }
         if (method === 'DELETE' && !bm[2]) { builds.remove(id); return sendJson(res, { ok: true }); }
       } catch (e) {
-        return sendJson(res, { error: e.message }, /unknown build/.test(e.message) ? 404 : 409);
+        return sendJson(res, { error: e.message }, /unknown build|no such open question/.test(e.message) ? 404 : /list|no blueprint/.test(e.message) ? 400 : 409);
       }
     }
 
@@ -285,6 +292,9 @@ export function createApp({ cwd = process.cwd(), secrets = makeSecrets(), modelF
       const answers = body.answers ? normalizeAnswers(body.answers) : null;
       const basedOn = typeof body.basedOn === 'string' && body.basedOn ? body.basedOn : null;
       if (basedOn && !builds.list().some(b => b.id === basedOn)) return sendJson(res, { error: 'unknown build to start from' }, 400);
+      // A rebuild: the owner reviewed the answers on the page (and maybe changed some). Needs a blueprint to update.
+      const reviewed = Array.isArray(body.reviewed) ? normalizeReviewed(body.reviewed) : null;
+      if (reviewed && !basedOn) return sendJson(res, { error: 'a rebuild needs the blueprint it updates (basedOn)' }, 400);
 
       let driver = null;
       if (session.mode === 'cli') {
@@ -298,12 +308,20 @@ export function createApp({ cwd = process.cwd(), secrets = makeSecrets(), modelF
       session.pendingAsk = null; session.pendingConnections = null;
       // A re-run pre-selects what the owner chose last time: from the build it starts
       // from, when there is one, over the latest answers on record.
-      const previous = previousAnswers(loadOwnerAnswers(), basedOn ? builds.get(basedOn).events : []);
+      const previous = reviewed
+        ? reviewed.map(a => ({ question: a.question, answer: a.picked.join(', '), picked: a.picked }))
+        : previousAnswers(loadOwnerAnswers(), basedOn ? builds.get(basedOn).events : []);
       session.webask = makeWebAsk(session, emit, { suggest: (q, o, m) => suggestFor(q, o, m, previous) });
       agentAsks.clear();
       // Every build is kept: a clean start sets the current blueprint aside; "build on" places an older one.
       builds.prepareStart({ basedOn });
       session.buildId = builds.create({ driver: driver ? driver.id : session.ai.provider, basedOn });
+      // The reviewed answers become this build's answers — with their options — so the next
+      // review starts from them and every rebuild carries the full set forward.
+      if (reviewed) for (const [i, a] of reviewed.entries()) {
+        emit('answered', { id: `reviewed_${i + 1}`, question: a.question, options: a.options, multi: a.multi, picked: a.picked, answer: a.picked.join(', '), carried: true, changed: a.changed });
+        if (a.changed) recordOwnerAnswer(a.question, a.picked);
+      }
       if (answers) saveAnswers(answers);
 
       // Tools the answers draw on are connected (or skipped) BEFORE anything is built.
@@ -315,7 +333,7 @@ export function createApp({ cwd = process.cwd(), secrets = makeSecrets(), modelF
         // Pre-supplied answers (API callers) skip the interview; otherwise it happens during the run.
         const start = basedOn ? basedOnBlock(builds.get(basedOn).meta) : '';
         const connected = CONNECTORS.map(c => ({ c, cr: loadCreds(c) })).filter(x => x.cr).map(({ c, cr }) => ({ label: c.label, account: cr._account, tools: c.tools.map(t => t.name) }));
-        const prompt = (answers ? answersBlock(answers, connections) : runBlock(previous, connected)) + start + PROMPT();
+        const prompt = (answers ? answersBlock(answers, connections) : reviewed ? rebuildBlock(reviewed, connected) : runBlock(previous, connected)) + start + PROMPT();
         if (driver) launchCli(driver, prompt, gen); else launchEmbedded(prompt, gen);
       });
       return sendJson(res, { ok: true }, 202);

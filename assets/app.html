@@ -2,6 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8" />
+<link rel="icon" href="/mascot/head.svg" type="image/svg+xml">
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <meta name="darkreader-lock"><!-- ships its own light+dark theme; stops the Dark Reader extension from recolouring it -->
 <title>SmartMonkey</title>
@@ -32,6 +33,14 @@
   .wrap { max-width:720px; margin:0 auto; padding:40px 20px 80px; }
   .brand { font-family:var(--serif); font-weight:600; font-size:30px; letter-spacing:-.02em; margin:0; }
   .sub { color:var(--slate); margin:6px 0 0; max-width:58ch; }
+  .brand-row { display:flex; align-items:center; gap:14px; }
+  .brand-mark { flex:none; width:44px; height:44px; }
+  .mascot { flex:none; object-fit:contain; filter:drop-shadow(0 3px 7px rgba(15,25,45,.38)); }
+  .mascot-card { display:flex; align-items:center; gap:20px; }
+  .mascot-card .mascot { width:120px; height:120px; }
+  .build-head { display:flex; align-items:center; gap:14px; }
+  .build-head .mascot { width:72px; height:72px; margin:-8px 0; }
+  @media (max-width:480px) { .mascot-card { flex-direction:column; align-items:flex-start; } }
   .privacy { display:inline-flex; align-items:center; gap:9px; margin:18px 0 28px; padding:7px 13px; border:1px solid var(--line); border-radius:999px; background:var(--surface); font-size:13px; color:var(--slate); }
   .privacy .dot { width:8px; height:8px; border-radius:50%; background:var(--brand); box-shadow:0 0 0 3px var(--brand-soft); flex:none; }
   .privacy b { color:var(--ink); font-weight:600; }
@@ -161,6 +170,16 @@
   .qa-opt { font-size:13px; padding:4px 10px; border-radius:6px; border:1px solid var(--line); color:var(--slate); }
   .qa-opt.on { border-color:var(--brand); background:var(--brand-soft); color:var(--brand); font-weight:600; }
   .qa-note { font-size:13px; color:var(--slate); margin:6px 0 0; }
+  .qa .pills { margin-top:4px; }
+  .qa .pill { font-size:13px; padding:6px 11px; }
+  .qa .pill:has(input:disabled) { cursor:default; }
+  .qa-other { margin-top:8px; }
+  .qa.changed { box-shadow:inset 3px 0 0 var(--brand); padding-left:12px; }
+  .qa-changed { margin-left:8px; padding:1px 7px; border-radius:5px; background:var(--brand-soft); color:var(--brand); font-size:11px; font-weight:700; vertical-align:2px; }
+  .linkish { margin-top:8px; padding:0; border:0; background:none; color:var(--brand); font:inherit; font-size:13px; font-weight:600; cursor:pointer; }
+  .linkish:hover { text-decoration:underline; filter:none; }
+  .rebuild-bar { position:sticky; bottom:0; display:flex; align-items:center; gap:10px; margin:14px -4px -4px; padding:12px 4px 4px; border-top:1px solid var(--line-2); background:var(--surface); }
+  .rebuild-bar .status { flex:1; margin:0; }
   .bpconn { margin-top:14px; padding-top:12px; border-top:1px solid var(--line-2); font-size:14px; color:var(--slate); }
   .bpconn b { color:var(--ink); }
   .bpconn ul { margin:6px 0 0; padding-left:18px; }
@@ -189,9 +208,12 @@
 <body>
 <div class="wrap">
   <header class="top">
-    <div>
-      <h1 class="brand">SmartMonkey</h1>
-      <p class="project" id="projectName"></p>
+    <div class="brand-row">
+      <img class="brand-mark" src="/mascot/head.svg" alt="" width="44" height="44">
+      <div>
+        <h1 class="brand">SmartMonkey</h1>
+        <p class="project" id="projectName"></p>
+      </div>
     </div>
     <button id="settingsBtn" class="ghost">Settings</button>
   </header>
@@ -253,19 +275,29 @@
   </div>
 
   <section class="card hide" id="buildPanel">
-    <h2 class="plain" id="buildTitle">Building</h2>
+    <div class="build-head"><img class="mascot hide" id="buildMascot" alt="" width="72" height="72"><h2 class="plain" id="buildTitle">Building</h2></div>
     <p class="sub">SmartMonkey reads your repo, then asks you a few questions here. Just click an answer.</p>
     <div class="working hide" id="working" role="status" aria-live="polite"><span class="spin" aria-hidden="true"></span><span class="w-text" id="wText">Working…</span><span class="w-time" id="wTime"></span></div>
     <div id="asks"></div>
     <div id="log" class="logbox"></div>
   </section>
 
-  <section class="card hide" id="empty">
-    <h2 class="plain">No blueprint yet</h2>
-    <p class="sub">Press <b>New build</b>. SmartMonkey reads this repo, asks you a few questions here (you just click an answer), and writes <code>smartmonkey/blueprint.json</code>.</p>
+  <section class="card hide mascot-card" id="empty">
+    <img class="mascot" src="/mascot/front.png" alt="" width="120" height="120">
+    <div>
+      <h2 class="plain">No blueprint yet</h2>
+      <p class="sub">Press <b>New build</b>. SmartMonkey reads this repo, asks you a few questions here (you just click an answer), and writes <code>smartmonkey/blueprint.json</code>.</p>
+    </div>
   </section>
 
-  <details class="card sec hide" id="secAnswers" open><summary>Answers</summary><div id="answers"></div></details>
+  <details class="card sec hide" id="secAnswers" open><summary>Answers</summary>
+    <div id="answers"></div>
+    <div class="rebuild-bar hide" id="rebuildBar">
+      <span class="status" id="rebuildNote"></span>
+      <button class="ghost hide" id="resetAnswers">Undo changes</button>
+      <button id="rebuild">Rebuild</button>
+    </div>
+  </details>
 
   <details class="card sec" id="secConns" open>
     <summary>Connections</summary>
@@ -338,7 +370,7 @@ async function refresh() {
   $('gen').disabled = running;
   $('stop').classList.toggle('hide', !running); $('stop').disabled = false;
   if (running) $('buildPanel').classList.remove('hide');
-  syncActions();
+  syncActions(); syncRebuild();
   if (s.pendingAsk) renderAsk(s.pendingAsk);
   if (s.pendingConnections) renderConnections(s.pendingConnections);
 }
@@ -386,8 +418,8 @@ async function startBuild(opts = {}) {
     $('settings').scrollIntoView({ behavior: 'smooth', block: 'start' });
     return;
   }
-  $('log').textContent = ''; $('asks').innerHTML = '';
-  $('buildPanel').classList.remove('hide'); $('buildTitle').textContent = opts.basedOn ? 'Building on the selected blueprint' : 'Building a new blueprint';
+  $('log').textContent = ''; $('asks').innerHTML = ''; $('buildMascot').classList.add('hide');
+  $('buildPanel').classList.remove('hide'); $('buildTitle').textContent = opts.reviewed ? 'Rebuilding with your answers' : opts.basedOn ? 'Building on the selected blueprint' : 'Building a new blueprint';
   $('empty').classList.add('hide');
   RUNNING = true; WORK.startedAt = Date.now(); WORK.activity = 'Starting up'; setWorking();
   $('buildPanel').scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -546,6 +578,7 @@ function showEvent(type, d, live, write = logLine) {
   const logLine = write;
   if (type === 'text') logLine(d);
   else if (type === 'tool') logLine(`· ${d.name} ${d.summary || ''}`);
+  else if (type === 'answered' && d.carried) { if (d.changed) logLine(`· you changed: ${d.question} → ${d.answer || '(left open)'}`); }
   else if (type === 'answered') logLine(`· you answered: ${d.answer || '(skipped)'}`);
   else if (type === 'ask' && live) renderAsk(d);
   else if (type === 'connections' && live) renderConnections(d);
@@ -569,6 +602,8 @@ for (const t of ['text', 'tool', 'answered', 'ask', 'connections', 'done', 'stop
     if (t === 'stopped') { $('asks').innerHTML = ''; flagQuestion(); }
     if (t === 'done' || t === 'stopped' || t === 'error') {
       $('buildTitle').textContent = t === 'done' ? 'Build finished' : t === 'stopped' ? 'Build stopped' : 'Build failed';
+      // the monkey reacts: happy when it finished, sad when it failed
+      if (t !== 'stopped') { $('buildMascot').src = `/mascot/${t === 'done' ? 'happy' : 'sad'}.png`; $('buildMascot').classList.remove('hide'); }
       refresh(); loadBlueprints();   // a finished build becomes the blueprint shown below
     }
   });
@@ -725,36 +760,87 @@ async function showBlueprint(id) {
 }
 window.addEventListener('message', e => { if (e.data && e.data.smartmonkeyViewHeight) $('viewFrame').style.height = (e.data.smartmonkeyViewHeight + 8) + 'px'; });
 
-// Every question the build asked, with all its options and what was picked.
+// Every question the build asked, with ALL its options and what was picked — editable.
+// Change any answer and press Rebuild: the build updates this blueprint for what changed,
+// without asking those questions again. The tester's loop: review → change → rebuild → upload.
+let ANS = [];
 function renderAnswers(events, m, ownerAnswers) {
   const box = $('answers'); box.innerHTML = '';
   const asks = {}; for (const ev of events) if (ev.type === 'ask') asks[ev.data.id] = ev.data;
-  let answered = events.filter(ev => ev.type === 'answered').map(ev => ev.data);
-  // made before build history: the answers on record from when it was built (the options offered weren't kept)
-  if (!answered.length && ownerAnswers && ownerAnswers.length) {
-    box.appendChild(el('p', 'qa-note', 'What you answered while this blueprint was being built. The options you were offered weren\'t recorded back then — only your answer.'));
-    answered = ownerAnswers.map(a => ({ question: a.question, picked: a.picked || [a.answer], options: [] }));
-  }
-  if (!answered.length) {
-    box.appendChild(el('p', 'status', m.imported ? 'This blueprint was made before SmartMonkey recorded answers.' : 'No questions were answered in this build.'));
-    return;
-  }
-  for (const a of answered) {
-    const q = asks[a.id] || {};
+  // one row per question (a question answered twice keeps its latest answer)
+  const byQ = new Map();
+  for (const ev of events) if (ev.type === 'answered') {
+    const a = ev.data, q = asks[a.id] || {};
     const options = a.options && a.options.length ? a.options : (q.options || []);
     const picked = a.picked || String(a.answer || '').split(', ').filter(Boolean);   // older builds stored only the text
-    const row = el('div', 'qa');
-    row.appendChild(el('p', 'qa-q', a.question || q.question || ''));
-    const opts = el('div', 'qa-opts');
-    for (const o of options) opts.appendChild(el('span', 'qa-opt' + (picked.includes(o) ? ' on' : ''), `${picked.includes(o) ? (a.multi ? '☑ ' : '● ') : (a.multi ? '☐ ' : '○ ')}${o}`));
-    if (options.length) row.appendChild(opts);
-    const other = picked.filter(p => !options.includes(p));
-    if (!picked.length) row.appendChild(el('p', 'qa-note', 'Skipped.'));
-    else if (!options.length) { const o = el('div', 'qa-opts'); for (const x of picked) o.appendChild(el('span', 'qa-opt on', x)); row.appendChild(o); }
-    else if (other.length) row.appendChild(el('p', 'qa-note', `Your own answer: ${other.join(', ')}`));
-    box.appendChild(row);
+    byQ.delete(a.question || q.question); byQ.set(a.question || q.question, { question: a.question || q.question || '', options, multi: !!(a.multi || q.multi), picked });
   }
+  let list = [...byQ.values()].filter(x => x.question);
+  // made before build history: the answers on record from when it was built (the options offered weren't kept)
+  if (!list.length && ownerAnswers && ownerAnswers.length) {
+    box.appendChild(el('p', 'qa-note', 'What you answered while this blueprint was being built. The options you were offered weren\'t recorded back then, so these are text answers.'));
+    list = ownerAnswers.map(a => ({ question: a.question, options: [], multi: false, picked: a.picked || [a.answer] }));
+  }
+  ANS = list.map(x => ({ ...x, orig: [...x.picked] }));
+  if (!ANS.length) {
+    box.appendChild(el('p', 'status', m.imported ? 'This blueprint was made before SmartMonkey recorded answers.' : 'No questions were answered in this build.'));
+    $('rebuildBar').classList.add('hide');
+    return;
+  }
+  const editable = !!m.counts;   // a build without a blueprint has nothing to rebuild on
+  ANS.forEach((a, i) => box.appendChild(answerRow(a, i, editable)));
+  $('rebuildBar').classList.toggle('hide', !editable);
+  syncRebuild();
 }
+function answerRow(a, i, editable) {
+  const row = el('div', 'qa'); row.dataset.i = i;
+  const head = el('p', 'qa-q', a.question); row.appendChild(head);
+  const tag = el('span', 'qa-changed hide', 'changed'); head.appendChild(tag);
+  const other = el('input', 'qa-other'); other.type = 'text'; other.placeholder = a.options.length ? 'Your own answer (optional)' : 'Your answer';
+  other.value = a.picked.filter(p => !a.options.includes(p)).join(', ');
+  other.disabled = !editable;
+  const opts = el('div', 'pills');
+  for (const o of a.options) {
+    const pill = el('label', 'pill');
+    const inp = el('input'); inp.type = a.multi ? 'checkbox' : 'radio'; inp.name = 'qa-' + i; inp.value = o;
+    inp.checked = a.picked.includes(o); inp.disabled = !editable;
+    // a single choice can be cleared by clicking it again (leave it open)
+    if (!a.multi) inp.onclick = () => { if (inp.dataset.was === '1') { inp.checked = false; inp.dataset.was = ''; } else { opts.querySelectorAll('input').forEach(x => x.dataset.was = ''); inp.dataset.was = '1'; } update(); };
+    if (!a.multi && inp.checked) inp.dataset.was = '1';
+    inp.onchange = update;
+    pill.appendChild(inp); pill.appendChild(document.createTextNode(o)); opts.appendChild(pill);
+  }
+  if (a.options.length) row.appendChild(opts);
+  const showOther = !a.options.length || other.value;
+  const otherBtn = el('button', 'linkish', 'Other answer…'); otherBtn.type = 'button';
+  otherBtn.onclick = () => { other.classList.remove('hide'); otherBtn.classList.add('hide'); other.focus(); };
+  if (!showOther) other.classList.add('hide'); else otherBtn.classList.add('hide');
+  if (a.options.length && editable) row.appendChild(otherBtn);
+  row.appendChild(other);
+  other.oninput = update;
+  function update() {
+    const checked = [...opts.querySelectorAll('input:checked')].map(x => x.value);
+    const typed = other.value.trim();
+    // a typed answer replaces a single choice; for several it is added
+    if (typed && !a.multi) opts.querySelectorAll('input').forEach(x => { x.checked = false; x.dataset.was = ''; });
+    a.picked = a.multi ? [...checked, ...(typed ? [typed] : [])] : typed ? [typed] : checked.slice(0, 1);
+    const changed = a.picked.slice().sort().join('\u0000') !== a.orig.slice().sort().join('\u0000');
+    row.classList.toggle('changed', changed); tag.classList.toggle('hide', !changed);
+    syncRebuild();
+  }
+  if (!a.picked.length) row.appendChild(el('p', 'qa-note', 'Left open — pick an answer to settle it.'));
+  return row;
+}
+const isChanged = a => a.picked.slice().sort().join('\u0000') !== a.orig.slice().sort().join('\u0000');
+function syncRebuild() {
+  const n = ANS.filter(isChanged).length;
+  $('rebuildNote').textContent = n ? `${plural(n, 'answer', 'answers')} changed.` : 'Change any answer above, then rebuild.';
+  $('rebuild').textContent = n ? 'Rebuild with these answers' : 'Rebuild';
+  $('rebuild').disabled = RUNNING;
+  $('resetAnswers').classList.toggle('hide', !n);
+}
+$('rebuild').onclick = () => startBuild({ basedOn: SELECTED, reviewed: ANS.map(a => ({ question: a.question, options: a.options, multi: a.multi, picked: a.picked, changed: isChanged(a) })) });
+$('resetAnswers').onclick = () => showBlueprint(SELECTED);
 
 // What THIS blueprint asked for and read, under the project's connections.
 function renderBlueprintConnections(m) {

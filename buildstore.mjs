@@ -156,6 +156,34 @@ export function makeBuildStore(kit, { now = () => new Date(), rand = () => rando
       setCurrent(id); place(id);
     },
 
+    /**
+     * Save edited test cases into a build (and into smartmonkey/ when it is the current
+     * one, so the file you upload is the edited one).
+     */
+    saveCases(id, cases) {
+      const m = metaOf(id); if (!m) throw new Error(`unknown build ${id}`);
+      if (m.status === 'running') throw new Error('this build is still running');
+      if (!Array.isArray(cases) || cases.length > 500) throw new Error('cases must be a list of at most 500');
+      writeJson(join(root, id, 'cases.json'), cases);
+      if (currentId() === id) writeJson(join(kit, 'cases.json'), cases);
+    },
+
+    /** The owner's answer to one of a build's open questions ('' clears it). */
+    answerOpenQuestion(id, index, answer) {
+      const m = metaOf(id); if (!m) throw new Error(`unknown build ${id}`);
+      if (m.status === 'running') throw new Error('this build is still running');
+      const file = join(root, id, 'blueprint.json');
+      const b = readJson(file); if (!b) throw new Error('that build has no blueprint');
+      const q = Array.isArray(b.openQuestions) ? b.openQuestions[index] : null;
+      if (!q || typeof q !== 'object' || !Number.isInteger(index)) throw new Error('no such open question');
+      const a = String(answer ?? '').trim().slice(0, 400);
+      if (a) q.answer = a; else delete q.answer;
+      writeJson(file, b);
+      if (currentId() === id) writeJson(join(kit, 'blueprint.json'), b);
+      m.answeredOpen = b.openQuestions.filter(x => x && x.answer).length; saveMeta(m);
+      return q;
+    },
+
     currentId,
   };
   return store;
