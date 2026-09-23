@@ -9,6 +9,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import http from 'node:http';
 
+process.env.SMARTMONKEY_AI_SETTINGS = join(mkdtempSync(join(tmpdir(), 'sm-ai-')), 'ai.json');   // never the user's real AI choice
 const { createApp } = await import('../server.mjs');
 const { makeSecrets } = await import('../secrets.mjs');
 
@@ -886,6 +887,21 @@ await check('generate test cases for a build: prompt is a cases run, existing ca
   const meta = (await req(port, 'GET', `/api/builds/${b.id}`)).json.meta;
   assert.equal(meta.cases.count, 2); assert.equal(meta.casesRun.status, 'done'); assert.equal(meta.status, 'done', 'the build itself is untouched');
   app.server.close();
+});
+
+await check('the AI is chosen once: a restarted app (or another project) remembers it', async () => {
+  const drivers = () => [{ id: 'claude', bin: 'claude', label: 'Claude Code' }];
+  const a = createApp({ cwd: mkdtempSync(join(tmpdir(), 'sm-app-')), secrets: makeSecrets({ platform: 'win32' }), detectDrivers: drivers });
+  const pa = await a.listen(0);
+  await req(pa, 'POST', '/api/ai', { mode: 'cli', driver: 'claude' });
+  a.server.close();
+  assert.deepEqual(JSON.parse(readFileSync(process.env.SMARTMONKEY_AI_SETTINGS, 'utf8')), { mode: 'cli', driver: 'claude' });
+  const b = createApp({ cwd: mkdtempSync(join(tmpdir(), 'sm-app-')), secrets: makeSecrets({ platform: 'win32' }), detectDrivers: drivers });
+  const pb = await b.listen(0);
+  const st = (await req(pb, 'GET', '/api/status')).json;
+  assert.equal(st.mode, 'cli'); assert.equal(st.ai.ready, true, 'ready without asking again');
+  b.server.close();
+  assert.doesNotMatch(readFileSync(process.env.SMARTMONKEY_AI_SETTINGS, 'utf8'), /key/i, 'no secret in the settings file');
 });
 
 if (failures) { console.error(`\n${failures} failure(s)`); process.exit(1); }

@@ -10,6 +10,7 @@ import { join } from 'node:path';
 import { execFileSync } from 'node:child_process';
 import http from 'node:http';
 const { makePackageStore, safeName, kindOf, LIMITS } = await import('../package.mjs');
+process.env.SMARTMONKEY_AI_SETTINGS = join(mkdtempSync(join(tmpdir(), 'sm-ai-')), 'ai.json');   // never the user's real AI choice
 const { createApp } = await import('../server.mjs');
 const { makeSecrets } = await import('../secrets.mjs');
 

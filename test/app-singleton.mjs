@@ -35,7 +35,7 @@ await check('a second `smartmonkey app` replaces the first on the same port', as
   const cwd = mkdtempSync(join(tmpdir(), 'sm-single-'));
   const lock = join(mkdtempSync(join(tmpdir(), 'sm-single-lock-')), 'app.lock');
   const port = await freePort();
-  const env = { ...process.env, SMARTMONKEY_LOCK: lock, SMARTMONKEY_NO_OPEN: '1' };
+  const env = { ...process.env, SMARTMONKEY_LOCK: lock, SMARTMONKEY_NO_OPEN: '1', SMARTMONKEY_AI_SETTINGS: lock + '.ai.json' };
   const launch = () => spawn(process.execPath, [CLI, 'app', '--port', String(port)], { cwd, env, stdio: 'ignore' });
 
   let a, b;

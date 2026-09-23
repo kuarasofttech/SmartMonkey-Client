@@ -6,6 +6,7 @@
 import { createServer } from 'node:http';
 import { createReadStream, existsSync, statSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { join, resolve, extname, dirname, sep, basename } from 'node:path';
+import { homedir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { spawn } from 'node:child_process';
 import { randomBytes, createHash } from 'node:crypto';
@@ -35,6 +36,13 @@ const readRaw = (req, max) => new Promise((resolve, reject) => {
   req.on('end', () => (over ? reject(Object.assign(new Error('too large'), { status: 413 })) : resolve(Buffer.concat(parts))));
   req.on('error', reject);
 });
+// Which AI builds blueprints — chosen ONCE per machine, not per project and not per
+// session: logged-in CLI vs API key, which CLI, which provider/model. Not a secret (the
+// key itself stays in the OS keychain). Tests point SMARTMONKEY_AI_SETTINGS elsewhere
+// so they never overwrite the user's real choice.
+export const aiSettingsPath = () => process.env.SMARTMONKEY_AI_SETTINGS || join(homedir(), '.smartmonkey', 'ai.json');
+const loadAiSettings = () => { try { return JSON.parse(readFileSync(aiSettingsPath(), 'utf8')); } catch { return null; } };
+const saveAiSettings = v => { try { mkdirSync(dirname(aiSettingsPath()), { recursive: true }); writeFileSync(aiSettingsPath(), JSON.stringify(v, null, 2)); } catch {} };
 const sendJson = (res, obj, code = 200) => { res.writeHead(code, { 'content-type': 'application/json' }); res.end(JSON.stringify(obj)); };
 const writeSse = (res, ev) => res.write(`event: ${ev.type}\ndata: ${JSON.stringify(ev.data)}\n\n`);
 
@@ -111,6 +119,17 @@ export function createApp({ cwd = process.cwd(), secrets = makeSecrets(), modelF
   const make = modelFactory || ((provider, model, key) => embed.PROVIDERS[provider].make(key, model));
   const session = { status: 'idle', running: false, error: null, events: [], clients: new Set(), pendingAsk: null, pendingConnections: null, cliCancel: null, gen: 0, webask: null, buildId: null, ai: { provider: null, model: null }, key: null, mode: 'embedded', driver: null };
 
+  // Restore the AI chosen earlier, so a restart (or a new project) doesn't ask again.
+  {
+    const saved = loadAiSettings();
+    if (saved && saved.mode === 'cli' && typeof saved.driver === 'string') { session.mode = 'cli'; session.driver = saved.driver; }
+    else if (saved && saved.mode === 'embedded' && embed.PROVIDERS[saved.provider]) {
+      session.mode = 'embedded'; session.ai.provider = saved.provider;
+      session.ai.model = saved.model || embed.PROVIDERS[saved.provider].defaultModel;
+      const r = embed.resolveProvider({ provider: saved.provider, key: secrets.get(saved.provider) });
+      session.key = r.error ? null : r.key;
+    }
+  }
   const emit = (type, data) => { const ev = { type, data }; session.events.push(ev); if (session.buildId) builds.appendEvent(session.buildId, ev); for (const r of session.clients) writeSse(r, ev); };
   const isDriverReady = () => session.driver && detectDrivers().some(d => d.id === session.driver);
   const ready = () => session.mode === 'cli' ? !!isDriverReady() : !!(session.ai.provider && session.key);
@@ -201,6 +220,7 @@ export function createApp({ cwd = process.cwd(), secrets = makeSecrets(), modelF
       if (body.mode === 'cli') {
         session.mode = 'cli';
         session.driver = body.driver || null;
+        if (session.driver) saveAiSettings({ mode: 'cli', driver: session.driver });
         return sendJson(res, { ok: true, mode: 'cli', driver: session.driver, ready: ready(), drivers: driversPayload() });
       }
       const provider = body.provider;
@@ -210,6 +230,7 @@ export function createApp({ cwd = process.cwd(), secrets = makeSecrets(), modelF
       session.ai.model = body.model || embed.PROVIDERS[provider].defaultModel;
       if (body.key) { secrets.set(provider, body.key); session.key = body.key; }
       else { const loaded = secrets.get(provider); const r = embed.resolveProvider({ provider, key: loaded }); session.key = r.error ? null : r.key; }
+      saveAiSettings({ mode: 'embedded', provider, model: session.ai.model });
       return sendJson(res, { ok: true, ready: ready(), keychain: { available: secrets.available() } });
     }
 
