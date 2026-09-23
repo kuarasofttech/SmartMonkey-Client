@@ -365,7 +365,9 @@ sure each one is captured in `openQuestions[]` (with `options` when the answer i
 
 Rules the file must satisfy: every `baseConditions[].reset` names a real `stateReset[].id`
 and every `baseConditions[].account` names a real `accounts[].label` (these drive the setup
-steps, so they must resolve); no secret and no source path appears anywhere. Don't sweat
+steps, so they must resolve); no secret and no source path appears anywhere; a prose field
+(`danger`, `notes`, `why`, `whatItDoesNotUndo`…) is ONE string — several points go in one
+sentence joined with "; ", not in a list. Don't sweat
 exact vocabulary elsewhere — we normalise ids, map close synonyms, and keep an accurate
 sentence over a rejected one; an honest gap in `findings[]`/`openQuestions[]` always beats
 a guess.
