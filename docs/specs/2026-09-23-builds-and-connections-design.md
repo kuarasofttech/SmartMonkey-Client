@@ -127,13 +127,22 @@ to read the owner's issues/specs; cite what you used in `findings`.
    GitHub Issues) + local HTTP MCP for external agents.
 4. Later — web-search fallback (app-run search, user-confirmed host, read-only GET).
 
-## Decisions to confirm
-1. **Git**: history (logs can quote code-derived text) and `owner-answers.json`
-   are personal → `smartmonkey/.gitignore` ignores them by default, while
-   `blueprint.json` stays committable. OK?
-2. **Fresh vs incremental builds**: the agent currently sees the previous
-   `blueprint.json` and may build on it. Keep that (faster, incremental) or move
-   it aside so each build starts clean?
+## Decisions (owner, 2026-09-23)
+1. **Git**: `smartmonkey/.gitignore` ignores `builds/` and `owner-answers.json`;
+   `blueprint.json` stays committable.
+2. **Starting builds**:
+   - The app opens on the **latest build** (status, replayed log, Review).
+   - **New build** starts CLEAN: the current blueprint is set aside (it's safe in
+     its build folder; a pre-history blueprint is first imported as a build so
+     nothing is lost). If the new build fails or is stopped, the current one is
+     put back.
+   - **Build on this one** (any build in History): that build's blueprint is placed
+     as the starting point and the prompt says to keep what's right, fix what's
+     wrong and fill gaps.
+3. **The current build is editable** (view.html, when served by the app): case
+   edits and answers to open questions SAVE into the build (and into
+   `smartmonkey/` if it's the current one) — not download-only.
+   Phase A splits: **A1** history + start modes, **A2** editing.
 
 ## Tests
 - Build store: create/snapshot/list/delete/make-current/interrupted-on-restart.
