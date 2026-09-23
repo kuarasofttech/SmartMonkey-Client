@@ -60,6 +60,7 @@ export function createApp({ cwd = process.cwd(), secrets = makeSecrets(), modelF
   const INTERVIEW = join(KIT, 'interview.json');
   const builds = makeBuildStore(KIT);
   builds.recover();   // a build still marked running from a previous app session did not finish
+  builds.importLegacy();   // a blueprint made before history existed shows up as the last build right away
   let port = null;   // set by listen(); used to bring the browser back after a terminal-window run
   const loadAnswers = () => { try { return JSON.parse(readFileSync(INTERVIEW, 'utf8')); } catch { return null; } };
   const saveAnswers = a => { try { mkdirSync(KIT, { recursive: true }); writeFileSync(INTERVIEW, JSON.stringify(a, null, 2)); } catch {} };

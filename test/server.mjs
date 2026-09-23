@@ -577,5 +577,18 @@ await check('builds: delete the current → the previous becomes current; a runn
   app.server.close();
 });
 
+await check('builds: a blueprint made before history existed shows up as the last build as soon as the app opens', async () => {
+  const cwd = mkdtempSync(join(tmpdir(), 'sm-app-'));
+  const kit = join(cwd, 'smartmonkey'); mkdirSync(kit, { recursive: true });
+  writeFileSync(join(kit, 'blueprint.json'), JSON.stringify({ smartmonkeyBlueprint: 1, screens: [{}, {}] }));
+  const app = createApp({ cwd, secrets: makeSecrets({ platform: 'win32' }) });
+  const port = await app.listen(0);
+  const list = (await req(port, 'GET', '/api/builds')).json.builds;
+  assert.equal(list.length, 1, 'no build needed first');
+  assert.equal(list[0].imported, true); assert.equal(list[0].current, true); assert.equal(list[0].counts.screens, 2);
+  assert.match(readFileSync(join(kit, '.gitignore'), 'utf8'), /^builds\/$/m, 'history is git-ignored from the start');
+  app.server.close();
+});
+
 if (failures) { console.error(`\n${failures} failure(s)`); process.exit(1); }
 console.log('\nserver: all passed');

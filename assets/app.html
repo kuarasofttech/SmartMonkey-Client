@@ -477,6 +477,7 @@ async function replayLatest() {
   const r = await api('GET', `/api/builds/${encodeURIComponent(latest.id)}`);
   if (!r || !r.events || liveEvents) return;
   $('log').textContent = '';
+  if (latest.imported) { logLine('This blueprint was made before SmartMonkey kept a build history, so there is no log for it.'); logLine('Review it below, or press New build.'); return; }
   logLine(`— ${fmtWhen(latest.startedAt)} build —`);
   for (const ev of r.events) showEvent(ev.type, ev.data, false);
 }

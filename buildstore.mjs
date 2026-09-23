@@ -64,6 +64,7 @@ export function makeBuildStore(kit, { now = () => new Date(), rand = () => rando
     /** A blueprint that predates history becomes a build first, so a clean start never loses it. */
     importLegacy() {
       if (currentId() || !existsSync(join(kit, 'blueprint.json'))) return null;
+      store.ensureGitignore();
       const id = newId(); const dir = join(root, id); mkdirSync(dir, { recursive: true });
       for (const f of OUTPUTS) if (existsSync(join(kit, f))) copyFileSync(join(kit, f), join(dir, f));
       const at = statSync(join(kit, 'blueprint.json')).mtime.toISOString();
