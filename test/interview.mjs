@@ -103,6 +103,20 @@ check('runBlock: open questions get ASKED now (the "leave it for later" rule is 
   assert.match(b, /env var/i);
 });
 
+check('management tools are pre-offered (Linear, GitHub Issues, Azure DevOps…) and map to connections', () => {
+  const labels = q('docs').options.map(o => o.label);
+  for (const t of ['Linear', 'GitHub Issues', 'Azure DevOps', 'ClickUp', 'Asana']) assert.ok(labels.includes(t), `docs offers ${t}`);
+  assert.ok(q('casesSource').options.some(o => o.label === 'Linear'), 'test cases can live in Linear');
+  assert.deepEqual(servicesFor(normalizeAnswers({ docs: ['linear', 'github'] })), ['Linear', 'GitHub']);
+});
+
+check('runBlock: ANY named tool — offered or typed by the owner — goes to request_connections; never decided silently', () => {
+  const b = runBlock();
+  assert.match(b, /typed/i);
+  assert.match(b, /even if you think you can't reach it/i);
+  assert.match(b, /never decide on your own/i);
+});
+
 check('runBlock: previous answers are offered first on a re-run', () => {
   const b = runBlock([{ question: 'Which build should a tester use?', answer: 'devDebug' }]);
   assert.match(b, /devDebug/);

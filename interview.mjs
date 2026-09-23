@@ -19,13 +19,14 @@ export const QUESTIONS = [
     { value: 'none', label: 'None yet', hint: 'Draft new ones from the app' },
     { value: 'repo', label: 'In this repo', hint: 'Code tests, checklists or Gherkin' },
     { value: 'jira', label: 'Jira / Xray' },
+    { value: 'linear', label: 'Linear' },
     { value: 'testrail', label: 'TestRail' },
     { value: 'zephyr', label: 'Zephyr' },
     { value: 'qtest', label: 'qTest' },
     { value: 'other', label: 'Somewhere else' },
   ] },
   { id: 'casesWhere', label: 'Where are they?', type: 'text', when: { casesSource: 'other' }, placeholder: 'For example a Google Sheet or a Notion page', found: 'places the repo mentions test cases living (a sheet, a wiki, a tool)' },
-  { id: 'casesAccess', label: 'How should it reach them?', type: 'choice', default: 'export', when: { casesSource: ['jira', 'testrail', 'zephyr', 'qtest', 'other'] }, options: [
+  { id: 'casesAccess', label: 'How should it reach them?', type: 'choice', default: 'export', when: { casesSource: ['jira', 'linear', 'testrail', 'zephyr', 'qtest', 'other'] }, options: [
     { value: 'token', label: 'Connect it', hint: 'An API token, or my CLI is already signed in' },
     { value: 'export', label: "I'll paste an export", hint: 'CSV or JSON' },
   ] },
@@ -38,6 +39,11 @@ export const QUESTIONS = [
     { value: 'notion', label: 'Notion' },
     { value: 'figma', label: 'Figma' },
     { value: 'jira', label: 'Jira stories' },
+    { value: 'linear', label: 'Linear' },
+    { value: 'github', label: 'GitHub Issues' },
+    { value: 'azure', label: 'Azure DevOps' },
+    { value: 'clickup', label: 'ClickUp' },
+    { value: 'asana', label: 'Asana' },
   ] },
   { id: 'priorities', label: 'What matters most, or breaks most?', type: 'text', placeholder: 'Default: the core happy path', fallback: 'the core happy path', found: 'screens / flows' },
   { id: 'coverage', label: 'How broad should testing go?', type: 'choice', default: 'smoke', options: [
@@ -74,8 +80,8 @@ export function normalizeAnswers(raw = {}) {
   return out;
 }
 
-const CASE_TOOL = { jira: 'Jira', testrail: 'TestRail', zephyr: 'Zephyr', qtest: 'qTest' };
-const DOC_TOOL = { confluence: 'Confluence', notion: 'Notion', figma: 'Figma', jira: 'Jira' };
+const CASE_TOOL = { jira: 'Jira', linear: 'Linear', testrail: 'TestRail', zephyr: 'Zephyr', qtest: 'qTest' };
+const DOC_TOOL = { confluence: 'Confluence', notion: 'Notion', figma: 'Figma', jira: 'Jira', linear: 'Linear', github: 'GitHub', azure: 'Azure DevOps', clickup: 'ClickUp', asana: 'Asana' };
 
 /** The external tools the build will draw on — what the connect panel asks about. */
 export function servicesFor(a) {
@@ -145,7 +151,7 @@ export function runBlock(previous = []) {
     '2. Then ask each question below with the `ask_user` tool, one per call, in roughly this order. **Every question MUST come with options** (2–6 short ones) so the owner can answer with one click; the fixed questions use exactly the options given, the project-specific ones use what you found in the repo. They can still type their own if none fits.',
     '3. Skip a question only when the repo settles it beyond doubt — and never skip the safe-target / never-touch one; confirm it.',
     '4. Also ask any other PROJECT-SPECIFIC question the repo can\'t settle and whose answer changes the blueprint (which of two login flows, whether a dev endpoint needs auth…) — same rule: options.',
-    '5. If the answers mean the blueprint draws on an external tool (Jira / Xray, TestRail, Zephyr, qTest, Confluence, Notion, Figma), call `request_connections` once with those tools before you try to use them.',
+    '5. **Whenever an answer names an external tool** — one of the options (Jira, Linear, Confluence, Notion, Figma, GitHub Issues, Azure DevOps…) OR one the owner typed themselves — call `request_connections` with it, even if you think you can\'t reach it. The app shows the owner what can and can\'t be connected; **never decide on your own** and quietly leave it out. Use a tool only if it comes back connected.',
     '6. **Before you write `blueprint.json`, turn your open questions into questions for the owner.** The "Ask last, and ask short" rule in "How to work" (leave them in `openQuestions[]` for later, don\'t wait for a human) does NOT apply here — the owner is present and waiting to click. **Ask every one of them** — don\'t pre-judge which matter (how a tester signs in, which test account, OS versions, UI languages, first-run permissions, what a reset leaves behind, the app id…). Each with options drawn from what you found (e.g. "No sign-in" / "Email + password test account" / "SSO"), and **always include "Not sure — leave it open"** as the last option. **Never ask for a secret** — ask where it lives instead (an env var name such as `QA_PASSWORD`).',
     '7. Record what the owner told you with confidence `"asked"`. `openQuestions[]` holds ONLY what the owner skipped or chose to leave open — nothing you didn\'t ask.',
     '',
