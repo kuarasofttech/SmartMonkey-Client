@@ -166,6 +166,7 @@
   .qa-opt { font-size:13px; padding:4px 10px; border-radius:6px; border:1px solid var(--line); color:var(--slate); }
   .qa-opt.on { border-color:var(--brand); background:var(--brand-soft); color:var(--brand); font-weight:600; }
   .qa-note { font-size:13px; color:var(--slate); margin:6px 0 0; }
+  .ai-only { margin:0 0 8px; font-size:12.5px; color:var(--slate); }
   .qa .pills { margin-top:4px; }
   .qa .pill { font-size:13px; padding:6px 11px; }
   .qa .pill:has(input:disabled) { cursor:default; }
@@ -555,6 +556,7 @@ function renderAsk(a) {
   if (document.getElementById('ask-' + a.id)) return;
   const box = el('div', 'ask'); box.id = 'ask-' + a.id;
   box.appendChild(el('p', 'ask-q', a.question));
+  if (namesOutsideTool(a.options)) box.appendChild(el('p', 'ask-note ai-only', AI_ONLY_NOTE));
   if (a.multi && !a.suggested) box.appendChild(el('p', 'ask-note', 'Pick all that apply, then press Done.'));
   const group = el('div', 'pills'); box.appendChild(group);
   const typed = el('input', 'other hide'); typed.type = 'text'; typed.placeholder = 'Type your answer';
@@ -909,6 +911,15 @@ window.addEventListener('message', e => { if (e.data && e.data.smartmonkeyViewHe
 // Change any answer and press Rebuild: the build updates this blueprint for what changed,
 // without asking those questions again. The tester's loop: review → change → rebuild → upload.
 let ANS = [];
+// Questions whose options name an OUTSIDE tool (a tracker, a wiki, a design tool) carry a
+// note: the owner's own AI reaches it — SmartMonkey never does. Decided from the options,
+// so it is the same for a live question and for one answered in an older build.
+const OUTSIDE_TOOLS = /\b(linear|jira|xray|confluence|notion|figma|github|gitlab|azure devops|clickup|asana|trello|testrail|zephyr|qtest|google (sheets|docs|drive)|slack)\b/i;
+const namesOutsideTool = opts => (opts || []).some(o => OUTSIDE_TOOLS.test(String(o)));
+const AI_ONLY_NOTE = 'Only your AI tool will reach it.';
+// Builds used to ask what to produce; test cases now have their own button, so an old
+// build's answer to that is neither shown nor carried into a rebuild.
+const isProduceQuestion = a => /\bproduce\b/i.test(a.question || '') && (a.options || []).some(o => /test cases/i.test(o));
 function renderAnswers(events, m, ownerAnswers) {
   const box = $('answers'); box.innerHTML = '';
   const asks = {}; for (const ev of events) if (ev.type === 'ask') asks[ev.data.id] = ev.data;
@@ -920,7 +931,7 @@ function renderAnswers(events, m, ownerAnswers) {
     const picked = a.picked || String(a.answer || '').split(', ').filter(Boolean);   // older builds stored only the text
     byQ.delete(a.question || q.question); byQ.set(a.question || q.question, { question: a.question || q.question || '', options, multi: !!(a.multi || q.multi), picked });
   }
-  let list = [...byQ.values()].filter(x => x.question);
+  let list = [...byQ.values()].filter(x => x.question && !isProduceQuestion(x));
   // made before build history: the answers on record from when it was built (the options offered weren't kept)
   if (!list.length && ownerAnswers && ownerAnswers.length) {
     box.appendChild(el('p', 'qa-note', 'What you answered while this blueprint was being built. The options you were offered weren\'t recorded back then, so these are text answers.'));
@@ -941,6 +952,7 @@ function answerRow(a, i, editable) {
   const row = el('div', 'qa'); row.dataset.i = i;
   const head = el('p', 'qa-q', a.question); row.appendChild(head);
   const tag = el('span', 'qa-changed hide', 'changed'); head.appendChild(tag);
+  if (namesOutsideTool(a.options)) row.appendChild(el('p', 'qa-note ai-only', AI_ONLY_NOTE));
   const other = el('input', 'qa-other'); other.type = 'text'; other.placeholder = a.options.length ? 'Your own answer (optional)' : 'Your answer';
   other.value = a.picked.filter(p => !a.options.includes(p)).join(', ');
   other.disabled = !editable;

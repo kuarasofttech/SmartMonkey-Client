@@ -11,25 +11,6 @@
  */
 
 export const QUESTIONS = [
-  { id: 'produce', label: 'What should this run produce?', type: 'choice', default: 'blueprint', options: [
-    { value: 'blueprint', label: 'The blueprint only', hint: 'SmartMonkey generates test cases later' },
-    { value: 'blueprint+cases', label: 'The blueprint and test cases', hint: 'Now, with your AI' },
-  ] },
-  { id: 'casesSource', label: 'Where are your existing test cases?', type: 'choice', default: 'none', when: { produce: 'blueprint+cases' }, options: [
-    { value: 'none', label: 'None yet', hint: 'Draft new ones from the app' },
-    { value: 'repo', label: 'In this repo', hint: 'Code tests, checklists or Gherkin' },
-    { value: 'jira', label: 'Jira / Xray' },
-    { value: 'linear', label: 'Linear' },
-    { value: 'testrail', label: 'TestRail' },
-    { value: 'zephyr', label: 'Zephyr' },
-    { value: 'qtest', label: 'qTest' },
-    { value: 'other', label: 'Somewhere else' },
-  ] },
-  { id: 'casesWhere', label: 'Where are they?', type: 'text', when: { casesSource: 'other' }, placeholder: 'For example a Google Sheet or a Notion page', found: 'places the repo mentions test cases living (a sheet, a wiki, a tool)' },
-  { id: 'casesAccess', label: 'How should it reach them?', type: 'choice', default: 'export', when: { casesSource: ['jira', 'linear', 'testrail', 'zephyr', 'qtest', 'other'] }, options: [
-    { value: 'token', label: 'Connect it', hint: 'An API token, or my CLI is already signed in' },
-    { value: 'export', label: "I'll paste an export", hint: 'CSV or JSON' },
-  ] },
   { id: 'tracker', label: 'Where do you track bugs, tasks and sprints?', type: 'choice', default: 'none', options: [
     { value: 'none', label: 'Not in a tool' },
     { value: 'jira', label: 'Jira' },
@@ -39,11 +20,6 @@ export const QUESTIONS = [
     { value: 'clickup', label: 'ClickUp' },
     { value: 'asana', label: 'Asana' },
     { value: 'other', label: 'Somewhere else' },
-  ] },
-  { id: 'recentWork', label: 'Turn recent work into test cases?', type: 'choice', default: 'both', when: { produce: 'blueprint+cases', tracker: ['jira', 'linear', 'github', 'azure', 'clickup', 'asana', 'other'] }, options: [
-    { value: 'both', label: 'Recent bug fixes and the last sprint', hint: 'Regression cases for fixed bugs, integration cases for finished work' },
-    { value: 'bugs', label: 'Only recent bug fixes', hint: 'Regression cases' },
-    { value: 'no', label: 'No' },
   ] },
   { id: 'build', label: 'Which build should a tester use?', type: 'text', hint: 'If there is more than one build or flavour.', placeholder: 'Default: the debug/dev variant', fallback: 'the debug/dev variant', found: 'build flavours / variants' },
   { id: 'targets', label: 'Which backend is safe to test against, and what must never be touched?', type: 'text', placeholder: 'Default: the dev backend is safe; never production', fallback: 'the dev/debug variant points at a safe dev backend; never run against production', found: 'backends / environments' },
@@ -95,15 +71,13 @@ export function normalizeAnswers(raw = {}) {
   return out;
 }
 
-const CASE_TOOL = { jira: 'Jira', linear: 'Linear', testrail: 'TestRail', zephyr: 'Zephyr', qtest: 'qTest' };
 const DOC_TOOL = { confluence: 'Confluence', notion: 'Notion', figma: 'Figma', jira: 'Jira', linear: 'Linear', github: 'GitHub', azure: 'Azure DevOps', clickup: 'ClickUp', asana: 'Asana' };
 
 /** The external tools the build will draw on — what the connect panel asks about. */
 export function servicesFor(a) {
   const list = [];
-  if (a.casesAccess === 'token') list.push(a.casesSource === 'other' ? (a.casesWhere || 'Your test-case tool') : CASE_TOOL[a.casesSource]);
   for (const d of a.docs || []) if (DOC_TOOL[d]) list.push(DOC_TOOL[d]);
-  if (a.tracker && a.tracker !== 'none') list.push(a.tracker === 'other' ? 'Your issue tracker' : DOC_TOOL[a.tracker] || CASE_TOOL[a.tracker]);
+  if (a.tracker && a.tracker !== 'none') list.push(a.tracker === 'other' ? 'Your issue tracker' : DOC_TOOL[a.tracker]);
   const seen = new Set();
   return list.filter(s => s && !seen.has(s.toLowerCase()) && seen.add(s.toLowerCase()));
 }
@@ -163,6 +137,8 @@ export function runBlock(previous = [], connected = []) {
     '',
     'The owner is in the SmartMonkey app, not at a terminal, and answers by clicking. So the interview in "First, a short interview" below happens **during the run, not before it**:',
     '',
+    '**This run writes the blueprint ONLY** — never `cases.json`. The owner makes test cases separately (Generate test cases, in the app), so don\'t ask what to produce and skip the "Test cases" section below.',
+    '',
     '1. **Read the repo first** — docs, README, QA notes, tests, build config — so your questions are about THIS project.',
     '2. Then ask each question below with the `ask_user` tool, one per call, in roughly this order. **Every question MUST come with options** (2–6 short ones) so the owner can answer with one click; the fixed questions use exactly the options given, the project-specific ones use what you found in the repo. They can still type their own if none fits.',
     '3. Skip a question only when the repo settles it beyond doubt — and never skip the safe-target / never-touch one; confirm it.',
@@ -217,6 +193,8 @@ export function rebuildBlock(reviewed = [], connected = []) {
     '',
     ...(changed.length ? ['**Changed — update the blueprint for these first:**', '', ...changed.map(line), ''] : ['**Nothing was changed** — the owner wants the blueprint re-checked against the repo with the same answers.', '']),
     ...(kept.length ? ['**Unchanged — still true:**', '', ...kept.map(line), ''] : []),
+    'This run writes the blueprint ONLY — never `cases.json` (test cases are made separately, with Generate test cases); ignore any answer above about producing test cases.',
+    '',
     'How to work: `smartmonkey/blueprint.json` holds the previous blueprint. Find everything a changed answer affects (environments, safe targets, shortcuts, priorities, coverage, test cases, open questions) and update it; keep what is still right; re-check against the repo rather than copying. Record the owner\'s answers with confidence `"asked"`. An open question one of these answers settles is no longer open.',
     '',
     'Only if a CHANGE raises a new question the repo can\'t settle, ask it with `ask_user` (with 2–6 options, "Not sure — leave it open" last). If a changed answer names an external tool, call `request_connections` with it.',
@@ -249,7 +227,7 @@ export function casesRunBlock({ existing = 0, previous = [], connected = [], fil
     ...(docs.length || shots.length ? [
       `2. The owner added files for you in \`smartmonkey/package/\` — use them:${docs.length ? ` documents (specs, test plans, notes) in \`docs/\`: ${docs.map(f => f.name).join(', ')}.` : ''}${shots.length ? ` Screenshots of the app in \`screenshots/\` (${shots.map(f => f.name).join(', ')}) show real screens and expected states — describe what they show in your own words; never copy personal data from them.` : ''}`,
     ] : ['2. The owner added no documents or screenshots for this run.']),
-    '3. Before writing, ask the owner with `ask_user` — one click each, with options — only what changes the cases: how broad (`Smoke the critical path` / `Go broad`)' + (connected.length ? ', and whether to turn recent work into cases (`Recent bug fixes and the last sprint` / `Only recent bug fixes` / `No`)' : '') + '. Skip a question the blueprint\'s testing focus already settles. Never ask for a secret.',
+    '3. Before writing, ask the owner with `ask_user` — one click each, with options — only what changes the cases: whether there are EXISTING test cases to convert and where (`None yet` / `In this repo` / `Jira / Xray` / `Linear` / `TestRail` / `Zephyr` / `qTest` / `Somewhere else`; for an outside tool call `request_connections` with it), how broad (`Smoke the critical path` / `Go broad`)' + (connected.length ? ', and whether to turn recent work into cases (`Recent bug fixes and the last sprint` / `Only recent bug fixes` / `No`)' : '') + '. Skip a question the blueprint or the repo already settles. Never ask for a secret.',
     '4. Give every case a `tags` entry for its FEATURE AREA (a flow or screen name from the blueprint, e.g. `area:Tagging`) and one for its KIND: `smoke`, `regression`, `integration`, or `negative`. SmartMonkey groups cases into suites by these.',
     ...connectedLines(connected),
     ...(prev.length ? ['', '**Last time the owner answered** — offer the matching answer as the FIRST option:', '', ...prev.map(p => `- ${p.question} → ${p.answer}`)] : []),

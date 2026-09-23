@@ -283,10 +283,10 @@ await check('answers that need a tool: the connect panel comes first and the mod
   const port = await app.listen(0);
   const s = sse(port);
   await req(port, 'POST', '/api/ai', { provider: 'anthropic', key: 'sk-ant-x' });
-  await req(port, 'POST', '/api/generate', { answers: { produce: 'blueprint+cases', casesSource: 'jira', casesAccess: 'token', docs: ['figma'] } });
+  await req(port, 'POST', '/api/generate', { answers: { tracker: 'jira', docs: ['figma'] } });
   assert.ok(await waitFor(() => s.has('connections')));
   const conn = s.get('connections').data;
-  assert.deepEqual(conn.services, ['Jira', 'Figma']);
+  assert.deepEqual(conn.services, ['Figma', 'Jira']);
   await new Promise(r => setTimeout(r, 100));
   assert.equal(calls, 0, 'nothing built before Start');
   await req(port, 'POST', '/api/connect', { id: conn.id, service: 'Jira', action: 'skip' });
@@ -294,7 +294,7 @@ await check('answers that need a tool: the connect panel comes first and the mod
   assert.equal((await req(port, 'POST', '/api/connections/start', { id: conn.id })).status, 200);
   assert.ok(await waitFor(() => s.has('done')));
   assert.ok(calls > 0);
-  assert.match(firstPrompt, /Connected: none\. Not connected: Jira, Figma\./);
+  assert.match(firstPrompt, /Connected: none\. Not connected: Figma, Jira\./);
   s.destroy(); app.server.close();
 });
 

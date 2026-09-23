@@ -5,7 +5,7 @@
  *   node test/interview.mjs
  */
 import { strict as assert } from 'node:assert';
-const { QUESTIONS, isAsked, normalizeAnswers, servicesFor, answersBlock, runBlock } = await import('../interview.mjs');
+const { QUESTIONS, isAsked, normalizeAnswers, servicesFor, answersBlock, runBlock, casesRunBlock } = await import('../interview.mjs');
 
 let failures = 0;
 function check(name, fn) { try { fn(); console.log(`  ok  ${name}`); } catch (e) { failures++; console.error(`FAIL  ${name}: ${e.message}`); } }
@@ -22,23 +22,20 @@ check('every question has an id, a label and a known type; choices have their de
   }
 });
 
-check('conditionals: case questions only appear when generating cases, access only for external tools', () => {
-  assert.equal(isAsked(q('casesSource'), { produce: 'blueprint' }), false);
-  assert.equal(isAsked(q('casesSource'), { produce: 'blueprint+cases' }), true);
-  assert.equal(isAsked(q('casesAccess'), { produce: 'blueprint+cases', casesSource: 'repo' }), false);
-  assert.equal(isAsked(q('casesAccess'), { produce: 'blueprint+cases', casesSource: 'jira' }), true);
-  assert.equal(isAsked(q('casesWhere'), { produce: 'blueprint+cases', casesSource: 'other' }), true);
+check('a build asks no case questions: producing, converting and recent work belong to the Generate test cases run', () => {
+  for (const id of ['produce', 'casesSource', 'casesWhere', 'casesAccess', 'recentWork']) assert.equal(q(id), undefined, `${id} is not a build question`);
+  const b = casesRunBlock({ connected: [{ label: 'Linear', tools: ['linear_completed_issues'] }] });
+  assert.match(b, /EXISTING test cases to convert/); assert.match(b, /Jira \/ Xray/); assert.match(b, /request_connections/);
+  assert.match(b, /Recent bug fixes and the last sprint/);
+  assert.doesNotMatch(casesRunBlock(), /Recent bug fixes and the last sprint/, 'recent work only with a connected tracker');
 });
-
 check('normalize: missing answers take the defaults; unknown values fall back; texts are trimmed', () => {
-  const a = normalizeAnswers({ produce: 'nonsense', build: '  debug flavour  ' });
-  assert.equal(a.produce, 'blueprint', 'invalid choice → default');
+  const a = normalizeAnswers({ coverage: 'nonsense', build: '  debug flavour  ' });
+  assert.equal(a.coverage, 'smoke', 'invalid choice → default');
   assert.equal(a.build, 'debug flavour');
-  assert.equal(a.coverage, 'smoke');
   assert.deepEqual(a.docs, ['repo']);
-  assert.equal('casesSource' in a, false, 'unasked conditional questions are dropped');
+  assert.equal(a.tracker, 'none');
 });
-
 check('normalize: a conditional answer is dropped once its branch is closed', () => {
   const a = normalizeAnswers({ produce: 'blueprint', casesSource: 'jira', casesAccess: 'token' });
   assert.equal('casesSource' in a, false);
@@ -50,23 +47,19 @@ check('normalize: multi keeps only known values and allows an explicit empty cho
   assert.deepEqual(normalizeAnswers({ docs: [] }).docs, []);
 });
 
-check('servicesFor: a case tool needs connecting only when reached by token; docs add their tools; no dupes', () => {
-  const viaToken = normalizeAnswers({ produce: 'blueprint+cases', casesSource: 'jira', casesAccess: 'token', docs: ['jira', 'figma'] });
-  assert.deepEqual(servicesFor(viaToken), ['Jira', 'Figma']);
-  const viaExport = normalizeAnswers({ produce: 'blueprint+cases', casesSource: 'testrail', casesAccess: 'export', docs: ['repo'] });
-  assert.deepEqual(servicesFor(viaExport), [], 'a pasted export needs no connection');
-  const other = normalizeAnswers({ produce: 'blueprint+cases', casesSource: 'other', casesWhere: 'Google Sheets', casesAccess: 'token' });
-  assert.deepEqual(servicesFor(other), ['Google Sheets']);
+check('servicesFor: docs and the tracker add their tools; no dupes', () => {
+  assert.deepEqual(servicesFor(normalizeAnswers({ docs: ['jira', 'figma'], tracker: 'jira' })), ['Jira', 'Figma']);
+  assert.deepEqual(servicesFor(normalizeAnswers({ docs: ['repo'] })), []);
+  assert.deepEqual(servicesFor(normalizeAnswers({ tracker: 'other' })), ['Your issue tracker']);
 });
-
 check('answersBlock: says the interview is done, carries every answer, and tightens open questions', () => {
-  const a = normalizeAnswers({ produce: 'blueprint+cases', casesSource: 'jira', casesAccess: 'token', build: 'devDebug', docs: ['figma'] });
+  const a = normalizeAnswers({ tracker: 'jira', build: 'devDebug', docs: ['figma'] });
   const b = answersBlock(a, 'Connected: Jira. Skipped: Figma.');
   assert.match(b, /already (been )?answered|ALREADY DONE/i);
   assert.match(b, /do not re-ask/i);
   assert.match(b, /ask_user/, 'invites project-specific questions');
-  assert.match(b, /The blueprint and test cases/);
-  assert.match(b, /Jira \/ Xray/);
+  assert.match(b, /Figma/);
+  assert.match(b, /Jira/);
   assert.match(b, /devDebug/);
   assert.match(b, /Connected: Jira\. Skipped: Figma\./);
   assert.match(b, /openQuestions/);
@@ -85,7 +78,8 @@ check('runBlock: the interview happens during the run, after reading the repo, a
   assert.match(b, /ask_user/);
   assert.match(b, /every question MUST come with options/i);
   for (const q of QUESTIONS) assert.ok(b.includes(q.label), `covers "${q.label}"`);
-  assert.match(b, /The blueprint only.*The blueprint and test cases/s, 'fixed questions carry their exact options');
+  assert.match(b, /Smoke the critical path \| Go broad/, 'fixed questions carry their exact options');
+  assert.match(b, /blueprint ONLY/); assert.match(b, /don't ask what to produce/);
   assert.match(b, /Which build should a tester use\?[^\n]*options you found in the repo/i, 'repo-dependent ones ask for found options');
   assert.match(b, /request_connections/, 'the connect step happens mid-run when a tool comes up');
   assert.match(b, /"asked"/, 'answers are recorded with confidence asked');
@@ -106,10 +100,9 @@ check('runBlock: open questions get ASKED now (the "leave it for later" rule is 
 check('management tools are pre-offered (Linear, GitHub Issues, Azure DevOps…) and map to connections', () => {
   const labels = q('docs').options.map(o => o.label);
   for (const t of ['Linear', 'GitHub Issues', 'Azure DevOps', 'ClickUp', 'Asana']) assert.ok(labels.includes(t), `docs offers ${t}`);
-  assert.ok(q('casesSource').options.some(o => o.label === 'Linear'), 'test cases can live in Linear');
+  assert.ok(q('tracker').options.some(o => o.label === 'Linear'));
   assert.deepEqual(servicesFor(normalizeAnswers({ docs: ['linear', 'github'] })), ['Linear', 'GitHub']);
 });
-
 check('runBlock: ANY named tool — offered or typed by the owner — goes to request_connections; never decided silently', () => {
   const b = runBlock();
   assert.match(b, /typed/i);
@@ -132,15 +125,10 @@ check('runBlock: previous answers are offered first on a re-run', () => {
   assert.match(b, /first option/i);
 });
 
-check('the issue tracker is asked always; recent work only when writing cases with a tracker', () => {
+check('the issue tracker is asked in every build', () => {
   assert.equal(isAsked(q('tracker'), {}), true);
-  assert.equal(isAsked(q('recentWork'), { produce: 'blueprint', tracker: 'linear' }), false);
-  assert.equal(isAsked(q('recentWork'), { produce: 'blueprint+cases', tracker: 'none' }), false);
-  assert.equal(isAsked(q('recentWork'), { produce: 'blueprint+cases', tracker: 'linear' }), true);
   assert.deepEqual(servicesFor(normalizeAnswers({ tracker: 'linear', docs: ['linear'] })), ['Linear'], 'no dupes with docs');
-  assert.deepEqual(servicesFor(normalizeAnswers({ tracker: 'jira' })), ['Jira']);
 });
-
 check('runBlock: a connected tracker is pointed at recent work — fixed bugs → regression, finished tasks → integration', () => {
   const b = runBlock([], [{ label: 'Linear', tools: ['linear_completed_issues', 'linear_list_cycles'] }]);
   assert.match(b, /regression case/); assert.match(b, /integration case/);
