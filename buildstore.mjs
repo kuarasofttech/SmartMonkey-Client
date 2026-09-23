@@ -42,6 +42,9 @@ export function makeBuildStore(kit, { now = () => new Date(), rand = () => rando
       else rmSync(join(kit, f), { force: true });
     }
   };
+  // Creation order. Start times tie within a millisecond (a fast restart, a test), and ids
+  // break ties by their random suffix — so order by a counter, not by the clock.
+  const nextSeq = () => ids().reduce((m, id) => Math.max(m, (readJson(join(root, id, 'meta.json')) || {}).seq || 0), 0) + 1;
   const newId = () => `${now().toISOString().replace(/[:.]/g, '-').replace(/-\d{3}Z$/, 'Z')}-${rand()}`;
 
   const store = {
@@ -68,7 +71,7 @@ export function makeBuildStore(kit, { now = () => new Date(), rand = () => rando
       const id = newId(); const dir = join(root, id); mkdirSync(dir, { recursive: true });
       for (const f of OUTPUTS) if (existsSync(join(kit, f))) copyFileSync(join(kit, f), join(dir, f));
       const at = statSync(join(kit, 'blueprint.json')).mtime.toISOString();
-      saveMeta({ id, startedAt: at, finishedAt: at, status: 'done', imported: true, counts: counts(join(dir, 'blueprint.json')) });
+      saveMeta({ id, seq: nextSeq(), startedAt: at, finishedAt: at, status: 'done', imported: true, counts: counts(join(dir, 'blueprint.json')) });
       setCurrent(id);
       return id;
     },
@@ -86,8 +89,8 @@ export function makeBuildStore(kit, { now = () => new Date(), rand = () => rando
 
     create({ driver = null, basedOn = null } = {}) {
       store.ensureGitignore();
-      const id = newId(); mkdirSync(join(root, id), { recursive: true });
-      saveMeta({ id, startedAt: now().toISOString(), status: 'running', driver, basedOn });
+      const seq = nextSeq(), id = newId(); mkdirSync(join(root, id), { recursive: true });
+      saveMeta({ id, seq, startedAt: now().toISOString(), status: 'running', driver, basedOn });
       return id;
     },
 
@@ -128,7 +131,7 @@ export function makeBuildStore(kit, { now = () => new Date(), rand = () => rando
     list() {
       const cur = currentId();
       return ids().map(id => ({ ...metaOf(id), current: id === cur }))
-        .sort((a, b) => (b.startedAt || '').localeCompare(a.startedAt || ''));
+        .sort((a, b) => ((b.seq || 0) - (a.seq || 0)) || (b.startedAt || '').localeCompare(a.startedAt || ''));
     },
 
     get(id) {

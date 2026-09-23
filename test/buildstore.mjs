@@ -147,5 +147,16 @@ check('answering an open question writes it into the blueprint (≤400 chars); e
   assert.throws(() => store.answerOpenQuestion(a, 9, 'x'), /no such open question/);
 });
 
+check('list order follows creation, even when two builds start in the same millisecond', () => {
+  const kit = join(mkdtempSync(join(tmpdir(), 'sm-bs-')), 'smartmonkey'); mkdirSync(kit, { recursive: true });
+  const frozen = new Date('2026-09-23T10:00:00.000Z'); let r = 0;
+  const rands = ['ffff', '0000', '8888'];
+  const store = makeBuildStore(kit, { now: () => frozen, rand: () => rands[r++] });
+  const a = store.create({}); store.finish(a, 'stopped');
+  const b = store.create({}); store.finish(b, 'stopped');
+  const c = store.create({});
+  assert.deepEqual(store.list().map(x => x.id), [c, b, a]);
+});
+
 if (failures) { console.error(`\n${failures} failure(s)`); process.exit(1); }
 console.log('\nbuildstore: all passed');
