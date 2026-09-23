@@ -191,7 +191,7 @@
   #viewFrame { width:100%; max-width:1200px; margin:0 auto; border:0; min-height:400px; background:transparent; display:block; }
   .confirm { display:flex; gap:8px; align-items:center; font-size:14px; color:var(--ink); }
   .bp-acts.confirming > button { display:none; }
-  .hide { display:none; }
+  .hide { display:none !important; }   /* always wins — components set display, and an #id rule outranks a class */
   .working { display:flex; align-items:center; gap:10px; margin:4px 0 12px; padding:9px 12px; border:1px solid var(--line); border-radius:8px; background:var(--raised); font-size:13px; color:var(--slate); min-width:0; }
   .working .spin { flex:none; width:14px; height:14px; border-radius:50%; border:2px solid var(--brand-soft); border-top-color:var(--brand); animation:spin .8s linear infinite; }
   .working .w-text { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
@@ -276,7 +276,7 @@
 
   <section class="card hide" id="buildPanel">
     <div class="build-head"><img class="mascot hide" id="buildMascot" alt="" width="72" height="72"><h2 class="plain" id="buildTitle">Building</h2></div>
-    <p class="sub">SmartMonkey reads your repo, then asks you a few questions here. Just click an answer.</p>
+    <p class="sub" id="buildSub">SmartMonkey reads your repo, then asks you a few questions here. Just click an answer.</p>
     <div class="working hide" id="working" role="status" aria-live="polite"><span class="spin" aria-hidden="true"></span><span class="w-text" id="wText">Working…</span><span class="w-time" id="wTime"></span></div>
     <div id="asks"></div>
     <div id="log" class="logbox"></div>
@@ -419,6 +419,7 @@ async function startBuild(opts = {}) {
     return;
   }
   $('log').textContent = ''; $('asks').innerHTML = ''; $('buildMascot').classList.add('hide');
+  $('buildSub').textContent = opts.reviewed ? 'SmartMonkey updates the blueprint for the answers you changed. It only asks if a change raises something new.' : 'SmartMonkey reads your repo, then asks you a few questions here. Just click an answer.';
   $('buildPanel').classList.remove('hide'); $('buildTitle').textContent = opts.reviewed ? 'Rebuilding with your answers' : opts.basedOn ? 'Building on the selected blueprint' : 'Building a new blueprint';
   $('empty').classList.add('hide');
   RUNNING = true; WORK.startedAt = Date.now(); WORK.activity = 'Starting up'; setWorking();
@@ -603,7 +604,10 @@ for (const t of ['text', 'tool', 'answered', 'ask', 'connections', 'done', 'stop
     if (t === 'done' || t === 'stopped' || t === 'error') {
       $('buildTitle').textContent = t === 'done' ? 'Build finished' : t === 'stopped' ? 'Build stopped' : 'Build failed';
       // the monkey reacts: happy when it finished, sad when it failed
-      if (t !== 'stopped') { $('buildMascot').src = `/mascot/${t === 'done' ? 'happy' : 'sad'}.png`; $('buildMascot').classList.remove('hide'); }
+      const wrote = t === 'done' && !(d && d.blueprint === false);
+      if (t === 'done' && !wrote) $('buildTitle').textContent = 'Build finished without a blueprint';
+      $('buildSub').textContent = t === 'done' ? (wrote ? 'Your blueprint is ready — it opens below, with your answers.' : 'The build ended without writing a blueprint, so the one you had before is still current. The log below shows how far it got.') : t === 'stopped' ? 'You stopped this build. The blueprint you had before is still current.' : 'The blueprint you had before is still current. The log below says what went wrong.';
+      if (t !== 'stopped') { $('buildMascot').src = `/mascot/${wrote ? 'happy' : 'sad'}.png`; $('buildMascot').classList.remove('hide'); }
       refresh(); loadBlueprints();   // a finished build becomes the blueprint shown below
     }
   });
