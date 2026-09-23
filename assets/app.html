@@ -180,7 +180,10 @@
   .bpconn { margin-top:14px; padding-top:12px; border-top:1px solid var(--line-2); font-size:14px; color:var(--slate); }
   .bpconn b { color:var(--ink); }
   .bpconn ul { margin:6px 0 0; padding-left:18px; }
-  #viewFrame { width:100%; border:0; min-height:400px; background:transparent; display:block; }
+  #viewFrame, #casesFrame { width:100%; border:0; min-height:400px; background:transparent; display:block; }
+  .cases-empty { max-width:860px; margin:0 0 18px; padding:18px 20px; border:1.5px dashed var(--line); border-radius:10px; }
+  .cases-empty p { margin:0 0 12px; color:var(--slate); }
+  .cases-empty b { color:var(--ink); }
   .confirm { display:flex; gap:8px; align-items:center; font-size:14px; color:var(--ink); }
   .bp-acts.confirming > button { display:none; }
   .hide { display:none !important; }   /* always wins — components set display, and an #id rule outranks a class */
@@ -387,6 +390,7 @@
     <div class="tabs-wrap hide" id="cols">
       <div class="tabs" role="tablist" aria-label="Blueprint views">
         <button role="tab" class="tab" id="tabBlueprint" data-pane="paneBlueprint" aria-selected="true">Blueprint</button>
+        <button role="tab" class="tab" id="tabCases" data-pane="paneCases" aria-selected="false">Test cases <span class="tab-n hide" id="casesN"></span></button>
         <button role="tab" class="tab" id="tabAnswers" data-pane="paneAnswers" aria-selected="false">Build <span class="tab-n hide" id="changedN"></span></button>
         <button role="tab" class="tab" id="tabPackage" data-pane="panePackage" aria-selected="false">Package <span class="tab-n hide" id="pkgN"></span></button>
         <button role="tab" class="tab" id="tabLog" data-pane="paneLog" aria-selected="false">Build log</button>
@@ -397,6 +401,13 @@
           <iframe id="viewFrame" title="Blueprint" scrolling="no"></iframe>
           <p class="status hide" id="noBp"></p>
         </div>
+      </section>
+      <section class="pane hide" id="paneCases" role="tabpanel" aria-labelledby="tabCases">
+        <div class="cases-empty hide" id="casesEmpty">
+          <p><b>No test cases in this blueprint yet.</b> SmartMonkey can write them with your AI from the blueprint, the files in your package and your connected tools — or add your own below.</p>
+          <button id="genCases2">Generate test cases</button>
+        </div>
+        <iframe id="casesFrame" title="Test cases" scrolling="no"></iframe>
       </section>
       <section class="pane hide" id="paneAnswers" role="tabpanel" aria-labelledby="tabAnswers">
         <div class="bp-acts build-acts" id="bpActs">
@@ -548,6 +559,7 @@ async function startBuild(opts = {}) {
 }
 $('gen').onclick = () => startBuild();
 $('genCases').onclick = () => startBuild({ cases: SELECTED });
+$('genCases2').onclick = () => startBuild({ cases: SELECTED });
 $('buildClose').onclick = () => $('buildPanel').classList.add('hide');
 
 // A question from the build, mid-run. Answer by clicking: one click for a single
@@ -730,9 +742,10 @@ for (const t of ['text', 'tool', 'answered', 'ask', 'connections', 'done', 'stop
       const wrote = t === 'done' && (casesRun ? d.cases != null : !(d && d.blueprint === false));
       if (t === 'done' && casesRun) $('buildTitle').textContent = wrote ? `${plural(d.cases, 'test case', 'test cases')} in this blueprint` : 'No test cases were written';
       else if (t === 'done' && !wrote) $('buildTitle').textContent = 'Build finished without a blueprint';
-      $('buildSub').textContent = t === 'done' && casesRun ? (wrote ? 'They are under Blueprint (Test cases, at the bottom), where you can edit them, and they go in the package.' : 'The run ended without writing cases.json. The log below shows how far it got; the blueprint is as it was.') : t === 'done' ? (wrote ? 'Your blueprint is ready — it opens below, with your answers.' : 'The build ended without writing a blueprint, so the one you had before is still current. The log below shows how far it got.') : t === 'stopped' ? 'You stopped this build. The blueprint you had before is still current.' : 'The blueprint you had before is still current. The log below says what went wrong.';
+      $('buildSub').textContent = t === 'done' && casesRun ? (wrote ? 'They are in the Test cases tab, where you can edit them, and they go in the package.' : 'The run ended without writing cases.json. The log below shows how far it got; the blueprint is as it was.') : t === 'done' ? (wrote ? 'Your blueprint is ready — it opens below, with your answers.' : 'The build ended without writing a blueprint, so the one you had before is still current. The log below shows how far it got.') : t === 'stopped' ? 'You stopped this build. The blueprint you had before is still current.' : 'The blueprint you had before is still current. The log below says what went wrong.';
       $('buildClose').classList.remove('hide'); $('log').classList.add('hide');   // the log stays under "Build log"
       if (t !== 'stopped') { $('buildMascot').src = `/mascot/${wrote ? 'happy' : 'sad'}.png`; $('buildMascot').classList.remove('hide'); }
+      if (t === 'done' && d && d.kind === 'cases') showTab('tabCases');   // straight to what was just written
       refresh(); loadBlueprints(d && d.kind === 'cases' ? d.build : undefined);   // cases: stay on that build; a finished build becomes the blueprint shown below
     }
   });
@@ -838,7 +851,7 @@ const fmtWhen = iso => {
 const STATUS = { done: 'Done', error: 'Failed', stopped: 'Stopped', interrupted: 'Interrupted', running: 'Running' };
 const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
 const countsText = c => c ? `${plural(c.screens, 'screen', 'screens')}, ${plural(c.flows, 'flow', 'flows')}, ${plural(c.openQuestions, 'open question', 'open questions')}` : '';
-const viewUrl = (id, embed) => `/view.html?${embed ? 'embed=1&' : ''}src=builds/${encodeURIComponent(id)}/blueprint.json`;
+const viewUrl = (id, embed, part) => `/view.html?${embed ? 'embed=1&' : ''}${part ? `part=${part}&` : ''}src=builds/${encodeURIComponent(id)}/blueprint.json`;
 let BUILDS = [], SELECTED = null;
 
 async function loadBlueprints(selectId) {
@@ -897,15 +910,30 @@ async function showBlueprint(id) {
   renderBlueprintConnections(m);
   // the blueprint itself, embedded
   const frame = $('viewFrame');
-  if (m.counts) { $('noBp').classList.add('hide'); frame.classList.remove('hide'); frame.src = viewUrl(id, true); $('fullView').href = viewUrl(id, false); $('fullView').classList.remove('hide'); }
+  if (m.counts) { $('noBp').classList.add('hide'); frame.classList.remove('hide'); frame.src = viewUrl(id, true, 'blueprint'); $('fullView').href = viewUrl(id, false); $('fullView').classList.remove('hide'); }
   else { frame.classList.add('hide'); frame.removeAttribute('src'); $('fullView').classList.add('hide'); $('noBp').textContent = 'This build did not write a blueprint.'; $('noBp').classList.remove('hide'); }
+  // its test cases, in their own tab (the same editor: edits save into this build)
+  const n = m.cases && m.cases.count ? m.cases.count : 0;
+  $('casesN').textContent = n ? String(n) : ''; $('casesN').classList.toggle('hide', !n);
+  $('tabCases').classList.toggle('hide', !m.counts);
+  $('casesEmpty').classList.toggle('hide', !!n || !m.counts);
+  if (m.counts) $('casesFrame').src = viewUrl(id, true, 'cases'); else $('casesFrame').removeAttribute('src');
   // its log
   const box = $('histLog'); box.textContent = '';
   const write = t => { box.textContent += t.endsWith('\n') ? t : t + '\n'; };
   if (m.imported) write('This blueprint was made before SmartMonkey kept a build history, so there is no log for it.');
   for (const ev of events) showEvent(ev.type, ev.data, false, write);
 }
-window.addEventListener('message', e => { if (e.data && e.data.smartmonkeyViewHeight) $('viewFrame').style.height = (e.data.smartmonkeyViewHeight + 8) + 'px'; });
+// Each embedded view reports its own height; size the frame it came from.
+window.addEventListener('message', e => {
+  if (e.data && typeof e.data.smartmonkeyCasesCount === 'number' && $('casesFrame').contentWindow === e.source) {   // edited in the tab
+    const n = e.data.smartmonkeyCasesCount; $('casesN').textContent = n ? String(n) : ''; $('casesN').classList.toggle('hide', !n);
+    const b = BUILDS.find(x => x.id === SELECTED); if (b) { b.cases = { ...(b.cases || {}), count: n }; renderBpList(); syncActions(); }
+    return;
+  }
+  if (!e.data || !e.data.smartmonkeyViewHeight) return;
+  for (const id of ['viewFrame', 'casesFrame']) if ($(id).contentWindow === e.source) $(id).style.height = (e.data.smartmonkeyViewHeight + 8) + 'px';
+});
 
 // Every question the build asked, with ALL its options and what was picked — editable.
 // Change any answer and press Rebuild: the build updates this blueprint for what changed,

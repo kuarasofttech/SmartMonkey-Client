@@ -190,5 +190,14 @@ check('a failed or stopped case run keeps the build as it was; running builds an
   assert.throws(() => store.startCases(b), /no blueprint/);
 });
 
+check('a build\'s case count comes from its cases.json, whoever wrote it', () => {
+  const { kit, store } = fresh();
+  store.prepareStart({}); const a = store.create({}); writeFileSync(join(kit, 'blueprint.json'), bp(1)); store.finish(a, 'done');
+  assert.equal(store.list()[0].cases, undefined, 'no cases.json → no count');
+  store.saveCases(a, [{ id: 'A' }, { id: 'B' }, { id: 'C' }]);
+  assert.equal(store.list()[0].cases.count, 3);
+  assert.equal(store.get(a).meta.cases.count, 3);
+});
+
 if (failures) { console.error(`\n${failures} failure(s)`); process.exit(1); }
 console.log('\nbuildstore: all passed');

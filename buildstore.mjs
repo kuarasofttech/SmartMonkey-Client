@@ -45,6 +45,14 @@ export function makeBuildStore(kit, { now = () => new Date(), rand = () => rando
   // Creation order. Start times tie within a millisecond (a fast restart, a test), and ids
   // break ties by their random suffix — so order by a counter, not by the clock.
   const nextSeq = () => ids().reduce((m, id) => Math.max(m, (readJson(join(root, id, 'meta.json')) || {}).seq || 0), 0) + 1;
+  // How many test cases a build holds — counted from its cases.json, whoever wrote it
+  // (the build, a generate run, or the owner in the editor), so the number is never stale.
+  const caseCount = id => {
+    const c = readJson(join(root, id, 'cases.json'));
+    const list = Array.isArray(c) ? c : c && Array.isArray(c.cases) ? c.cases : null;
+    const m = readJson(join(root, id, 'meta.json')) || {};
+    return list ? { cases: { ...(m.cases || {}), count: list.length } } : {};
+  };
   const newId = () => `${now().toISOString().replace(/[:.]/g, '-').replace(/-\d{3}Z$/, 'Z')}-${rand()}`;
 
   const store = {
@@ -163,7 +171,7 @@ export function makeBuildStore(kit, { now = () => new Date(), rand = () => rando
 
     list() {
       const cur = currentId();
-      return ids().map(id => ({ ...metaOf(id), current: id === cur }))
+      return ids().map(id => ({ ...metaOf(id), ...caseCount(id), current: id === cur }))
         .sort((a, b) => ((b.seq || 0) - (a.seq || 0)) || (b.startedAt || '').localeCompare(a.startedAt || ''));
     },
 
@@ -171,7 +179,7 @@ export function makeBuildStore(kit, { now = () => new Date(), rand = () => rando
       const dir = dirOf(id);
       const raw = existsSync(join(dir, 'events.jsonl')) ? readFileSync(join(dir, 'events.jsonl'), 'utf8') : '';
       const events = raw.split('\n').filter(Boolean).map(l => { try { return JSON.parse(l); } catch { return null; } }).filter(Boolean);
-      return { meta: { ...metaOf(id), current: id === currentId() }, events };
+      return { meta: { ...metaOf(id), ...caseCount(id), current: id === currentId() }, events };
     },
 
     remove(id) {
