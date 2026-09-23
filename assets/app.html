@@ -247,7 +247,6 @@
   #paneAnswers .rebuild-bar { background:var(--paper); margin:18px 0 0; padding:14px 0; }
   .btn-link { display:inline-flex; align-items:center; padding:9px 16px; border-radius:8px; background:var(--brand); color:var(--on-brand); font-weight:600; font-size:14px; text-decoration:none; }
   .btn-link:hover { background:var(--brand-hi); }
-  .pkg-foot .btn { display:inline-flex; padding:10px 18px; border-radius:8px; background:var(--brand); color:var(--on-brand); font-weight:600; text-decoration:none; }
   #panePackage { max-width:860px; }
   .drop { position:relative; display:flex; flex-direction:column; gap:4px; margin:0; padding:22px 20px; border:1.5px dashed var(--line); border-radius:10px; background:var(--surface); cursor:pointer; transition:border-color .15s, background .15s; }
   .drop:hover, .drop.over { border-color:var(--brand); background:var(--brand-soft); }
@@ -436,7 +435,7 @@
         </label>
         <p class="status hide" id="pkgErr" role="alert"></p>
         <ul class="pkg-list" id="pkgList"></ul>
-        <div class="pkg-foot"><span class="status" id="pkgTotals"></span><a class="btn" id="downloadPkg2" href="#" download>Download package</a></div>
+        <div class="pkg-foot"><span class="status" id="pkgTotals"></span></div>
       </section>
       <section class="pane hide" id="paneLog" role="tabpanel" aria-labelledby="tabLog">
         <div id="secLog"><div id="histLog" class="logbox"></div></div>
@@ -890,7 +889,7 @@ function syncActions() {
   const has = !!(b && b.counts);
   $('buildOn').classList.toggle('hide', !has || RUNNING);
   $('genCases').classList.toggle('hide', !has || RUNNING);
-  for (const id of ['downloadPkg', 'downloadPkg2']) if (RUNNING) $(id).classList.add('hide'); else if (has) $(id).classList.remove('hide');
+  if (RUNNING) $('downloadPkg').classList.add('hide'); else if (has) $('downloadPkg').classList.remove('hide');
   if (b) $('genCases').textContent = b.cases && b.cases.count ? 'Propose more cases' : 'Propose cases';
   $('makeCurrent').classList.toggle('hide', !has || !b || b.current || RUNNING);
   $('deleteBp').classList.toggle('hide', !b || b.status === 'running' || RUNNING);
@@ -1052,7 +1051,7 @@ async function loadPackage() {
   $('pkgN').textContent = n ? String(n) : ''; $('pkgN').classList.toggle('hide', !n);
   $('pkgTotals').textContent = n ? `${plural(n, 'file', 'files')} added · ${fmtBytes(r.totals.bytes)} of ${fmtBytes(r.limits.totalBytes)}` : 'No files added — the package holds the blueprint only.';
   const href = `/api/builds/${encodeURIComponent(SELECTED || '')}/package`;
-  for (const id of ['downloadPkg', 'downloadPkg2']) { $(id).href = href; $(id).classList.toggle('hide', !hasBp || RUNNING); }   // never mid-run: the files are being rewritten
+  $('downloadPkg').href = href; $('downloadPkg').classList.toggle('hide', !hasBp || RUNNING);   // never mid-run: the files are being rewritten
 }
 async function addPackageFiles(files) {
   $('pkgErr').classList.add('hide');
