@@ -31,7 +31,7 @@ export function answerAsk(session, id, answer) {
  * (POST /api/connect) and then starts (POST /api/connections/start), which resolves
  * the promise — but ONLY once every service is connected or skipped.
  */
-export function makeWebConnections(session, emit) {
+export function makeWebConnections(session, emit, { isConnectable = () => false } = {}) {
   let n = 0;
   return (services) => new Promise((resolve) => {
     const list = (Array.isArray(services) ? services : [])
@@ -41,17 +41,18 @@ export function makeWebConnections(session, emit) {
     const seen = new Set();
     const uniq = list.filter(s => { const k = s.toLowerCase(); return seen.has(k) ? false : (seen.add(k), true); });
     const id = 'conn_' + (++n);
-    const status = {};
-    for (const s of uniq) status[s] = 'pending';
-    session.pendingConnections = { id, services: uniq, status, resolve };
-    emit('connections', { id, services: uniq, status });
+    const status = {}, connectable = {};
+    for (const s of uniq) { status[s] = 'pending'; connectable[s] = !!isConnectable(s); }
+    session.pendingConnections = { id, services: uniq, status, connectable, resolve };
+    emit('connections', { id, services: uniq, status, connectable });
   });
 }
 
 export function setConnection(session, id, service, action) {
   const p = session.pendingConnections;
   if (!p || p.id !== id || !(service in p.status)) return false;
-  if (action === 'connect') p.status[service] = 'connected';
+  // Only a tool with a REAL connector can be "connected" — never a click that does nothing.
+  if (action === 'connect') { if (!p.connectable || !p.connectable[service]) return false; p.status[service] = 'connected'; }
   else if (action === 'skip') p.status[service] = 'skipped';
   else return false;
   return true;
@@ -65,6 +66,6 @@ export function startConnections(session, id) {
   session.pendingConnections = null;
   const of = want => Object.keys(p.status).filter(k => p.status[k] === want);
   const connected = of('connected'), skipped = of('skipped');
-  p.resolve(`The user finished the connect step. Connected: ${connected.join(', ') || 'none'}. Skipped: ${skipped.join(', ') || 'none'}. Now build the blueprint.`);
+  p.resolve(`The user finished the connect step. Connected: ${connected.join(', ') || 'none'}. Not connected: ${skipped.join(', ') || 'none'}. Now build the blueprint.`);
   return true;
 }

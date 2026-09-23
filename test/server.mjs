@@ -208,7 +208,8 @@ await check('connect gate: request_connections pauses; start is refused until ea
 
   // start is refused while anything is still pending
   assert.equal((await req(port, 'POST', '/api/connections/start', { id: conn.id })).status, 409, 'refused with both pending');
-  assert.equal((await req(port, 'POST', '/api/connect', { id: conn.id, service: 'Jira', action: 'connect' })).status, 200);
+  assert.equal((await req(port, 'POST', '/api/connect', { id: conn.id, service: 'Jira', action: 'connect' })).status, 409, 'no real connector → a fake connect is refused');
+  assert.equal((await req(port, 'POST', '/api/connect', { id: conn.id, service: 'Jira', action: 'skip' })).status, 200);
   assert.equal((await req(port, 'POST', '/api/connections/start', { id: conn.id })).status, 409, 'refused with Figma pending');
   assert.equal((await req(port, 'POST', '/api/connect', { id: conn.id, service: 'Figma', action: 'skip' })).status, 200);
 
@@ -287,12 +288,12 @@ await check('answers that need a tool: the connect panel comes first and the mod
   assert.deepEqual(conn.services, ['Jira', 'Figma']);
   await new Promise(r => setTimeout(r, 100));
   assert.equal(calls, 0, 'nothing built before Start');
-  await req(port, 'POST', '/api/connect', { id: conn.id, service: 'Jira', action: 'connect' });
+  await req(port, 'POST', '/api/connect', { id: conn.id, service: 'Jira', action: 'skip' });
   await req(port, 'POST', '/api/connect', { id: conn.id, service: 'Figma', action: 'skip' });
   assert.equal((await req(port, 'POST', '/api/connections/start', { id: conn.id })).status, 200);
   assert.ok(await waitFor(() => s.has('done')));
   assert.ok(calls > 0);
-  assert.match(firstPrompt, /Connected: Jira\. Skipped: Figma\./);
+  assert.match(firstPrompt, /Connected: none\. Not connected: Jira, Figma\./);
   s.destroy(); app.server.close();
 });
 
@@ -469,11 +470,12 @@ await check('mid-run request_connections shows the Connect panel and returns the
   assert.ok(await waitFor(() => s.has('connections')));
   const c = s.get('connections').data;
   assert.deepEqual(c.services, ['Jira', 'Figma']);
-  await req(port, 'POST', '/api/connect', { id: c.id, service: 'Jira', action: 'connect' });
+  assert.deepEqual(c.connectable, { Jira: false, Figma: false }, 'the page is told nothing is really connectable');
+  await req(port, 'POST', '/api/connect', { id: c.id, service: 'Jira', action: 'skip' });
   await req(port, 'POST', '/api/connect', { id: c.id, service: 'Figma', action: 'skip' });
   await req(port, 'POST', '/api/connections/start', { id: c.id });
   const got = await reqH(port, 'GET', `/api/agent-ask/${posted.json.id}`, null, H);
-  assert.equal(got.json.answer, 'Connected: Jira. Skipped: Figma.');
+  assert.equal(got.json.answer, 'Connected: none. Not connected: Jira, Figma.');
   s.destroy(); app.server.close();
 });
 

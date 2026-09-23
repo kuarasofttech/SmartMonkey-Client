@@ -307,18 +307,26 @@ function flagQuestion() {
   document.title = (waiting ? '(1) Question · ' : '') + 'SmartMonkey';
 }
 
+// Tools the build asked for. Only a tool with a REAL connector gets a Connect
+// button; the rest say plainly that they can't be connected yet — never a fake ✓.
 function renderConnections(c) {
   const existing = document.getElementById('conns');
   if (existing && existing.dataset.id === c.id) { updateConnections(c); return; }
   if (existing) existing.remove();
-  const box = document.createElement('div'); box.className = 'ask conns'; box.id = 'conns'; box.dataset.id = c.id;
-  const h = document.createElement('div');
-  h.innerHTML = '<b>Connect your tools</b><div class="status">The blueprint draws on these. Connect or skip each, then start.</div>';
+  const anyReal = c.services.some(s => c.connectable && c.connectable[s]);
+  const box = el('div', 'ask conns'); box.id = 'conns'; box.dataset.id = c.id; box.dataset.anyReal = anyReal ? '1' : '';
+  const h = el('div');
+  h.appendChild(el('b', null, anyReal ? 'Connect your tools' : 'Tools the build asked for'));
+  h.appendChild(el('div', 'status', anyReal
+    ? 'Connect or skip each, then continue.'
+    : "SmartMonkey can't connect to these yet, so the build will use your repo and your answers instead."));
   box.appendChild(h);
-  const list = document.createElement('div'); list.id = 'conns-list'; box.appendChild(list);
-  const start = document.createElement('button'); start.textContent = 'Start blueprinting'; start.id = 'conns-start';
+  const list = el('div'); list.id = 'conns-list'; box.appendChild(list);
+  const start = el('button', null, anyReal ? 'Continue' : 'Continue without them'); start.id = 'conns-start';
   start.onclick = async () => {
     start.disabled = true;
+    // tools we can't connect are simply not connected — record that, then go on
+    for (const s of c.services) if (!(c.connectable && c.connectable[s]) && (c.status[s] || 'pending') === 'pending') await api('POST', '/api/connect', { id: c.id, service: s, action: 'skip' });
     const r = await api('POST', '/api/connections/start', { id: c.id });
     if (r && r.error) { start.disabled = false; return; }
     box.remove(); logLine('\n▶ Building the blueprint…');
@@ -331,28 +339,26 @@ function updateConnections(c) {
   const list = document.getElementById('conns-list'); if (!list) return;
   list.innerHTML = '';
   for (const svc of c.services) {
+    const real = !!(c.connectable && c.connectable[svc]);
     const st = c.status[svc] || 'pending';
-    const row = document.createElement('div'); row.className = 'conn-row';
-    const name = document.createElement('span'); name.className = 'conn-name'; name.textContent = svc; row.appendChild(name);
-    if (st === 'pending') {
-      const conn = document.createElement('button'); conn.className = 'conn-btn'; conn.textContent = 'Connect';
-      conn.onclick = () => setConn(c.id, svc, 'connect');
-      const skip = document.createElement('button'); skip.className = 'conn-btn conn-skip'; skip.textContent = 'Skip';
-      skip.onclick = () => setConn(c.id, svc, 'skip');
+    const row = el('div', 'conn-row');
+    row.appendChild(el('span', 'conn-name', svc));
+    if (!real) row.appendChild(el('span', 'conn-badge skipped', "Can't connect yet"));
+    else if (st === 'pending') {
+      const conn = el('button', 'conn-btn', 'Connect'); conn.onclick = () => setConn(c.id, svc, 'connect');
+      const skip = el('button', 'conn-btn conn-skip', 'Skip'); skip.onclick = () => setConn(c.id, svc, 'skip');
       row.appendChild(conn); row.appendChild(skip);
-    } else {
-      const badge = document.createElement('span'); badge.className = 'conn-badge ' + st;
-      badge.textContent = st === 'connected' ? 'Connected ✓' : 'Skipped';
-      row.appendChild(badge);
-    }
+    } else row.appendChild(el('span', 'conn-badge ' + st, st === 'connected' ? 'Connected ✓' : 'Not connected'));
     list.appendChild(row);
   }
-  const done = c.services.every(s => c.status[s] === 'connected' || c.status[s] === 'skipped');
+  // only the tools we can really connect need a decision; the rest are skipped on Continue
+  const done = c.services.every(s => !(c.connectable && c.connectable[s]) || c.status[s] === 'connected' || c.status[s] === 'skipped');
   const start = document.getElementById('conns-start'); if (start) start.disabled = !done;
 }
 async function setConn(id, service, action) {
   const r = await api('POST', '/api/connect', { id, service, action });
-  if (r && r.status) updateConnections({ id, services: Object.keys(r.status), status: r.status });
+  const st = await api('GET', '/api/status');
+  if (r && r.status && st && st.pendingConnections) updateConnections(st.pendingConnections);
 }
 
 const es = new EventSource('/api/events');

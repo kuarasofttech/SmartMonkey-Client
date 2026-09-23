@@ -143,7 +143,7 @@ export function createApp({ cwd = process.cwd(), secrets = makeSecrets(), modelF
         blueprint: { exists: existsSync(join(KIT, 'blueprint.json')) },
         run: { status: session.status, error: session.error },
         pendingAsk: session.pendingAsk ? { id: session.pendingAsk.id, question: session.pendingAsk.question, options: session.pendingAsk.options, multi: !!session.pendingAsk.multi } : null,
-        pendingConnections: session.pendingConnections ? { id: session.pendingConnections.id, services: session.pendingConnections.services, status: session.pendingConnections.status } : null,
+        pendingConnections: session.pendingConnections ? { id: session.pendingConnections.id, services: session.pendingConnections.services, status: session.pendingConnections.status, connectable: session.pendingConnections.connectable } : null,
       });
     }
 

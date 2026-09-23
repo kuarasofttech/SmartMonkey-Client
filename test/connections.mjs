@@ -25,35 +25,44 @@ check('non-string / blank services are dropped', () => {
   assert.deepEqual(session.pendingConnections.services, ['Jira', 'Confluence']);
 });
 
-check('connect and skip flip status; unknown service/id are rejected', () => {
+check('nothing is connectable by default: "connect" is refused, the event says so', () => {
+  const session = {}; const events = [];
+  makeWebConnections(session, (t, d) => events.push(d))(['Linear', 'Figma']);
+  const id = session.pendingConnections.id;
+  assert.deepEqual(events[0].connectable, { Linear: false, Figma: false });
+  assert.equal(setConnection(session, id, 'Linear', 'connect'), false, 'no real connector → no fake "Connected"');
+  assert.equal(setConnection(session, id, 'Linear', 'skip'), true);
+  assert.deepEqual(session.pendingConnections.status, { Linear: 'skipped', Figma: 'pending' });
+});
+
+check('a tool with a real connector can be connected; unknown service/id/action are rejected', () => {
   const session = {};
-  makeWebConnections(session, () => {})(['Jira', 'Figma']);
+  makeWebConnections(session, () => {}, { isConnectable: s => s === 'Jira' })(['Jira', 'Figma']);
   const id = session.pendingConnections.id;
   assert.equal(setConnection(session, id, 'Jira', 'connect'), true);
+  assert.equal(setConnection(session, id, 'Figma', 'connect'), false, 'Figma has no connector');
   assert.equal(setConnection(session, id, 'Figma', 'skip'), true);
-  assert.equal(setConnection(session, id, 'Nope', 'connect'), false, 'unknown service rejected');
-  assert.equal(setConnection(session, 'bad-id', 'Jira', 'connect'), false, 'wrong id rejected');
+  assert.equal(setConnection(session, id, 'Nope', 'skip'), false, 'unknown service rejected');
+  assert.equal(setConnection(session, 'bad-id', 'Jira', 'skip'), false, 'wrong id rejected');
   assert.equal(setConnection(session, id, 'Jira', 'bogus'), false, 'unknown action rejected');
   assert.deepEqual(session.pendingConnections.status, { Jira: 'connected', Figma: 'skipped' });
 });
 
-check('start is refused until EVERY service is connected or skipped', async () => {
+check('start is refused until every service is resolved; the summary says "Not connected", never a fake "Connected"', async () => {
   let resolved = null;
   const session = {};
-  const p = makeWebConnections(session, () => {})(['Jira', 'Figma']);
-  p.then(v => { resolved = v; });
+  makeWebConnections(session, () => {})(['Linear', 'Figma']).then(v => { resolved = v; });
   const id = session.pendingConnections.id;
   assert.equal(allResolved(session.pendingConnections), false);
-  assert.equal(startConnections(session, id), false, 'refused while Jira/Figma still pending');
-  setConnection(session, id, 'Jira', 'connect');
-  assert.equal(startConnections(session, id), false, 'refused while Figma still pending');
+  assert.equal(startConnections(session, id), false, 'refused while pending');
+  setConnection(session, id, 'Linear', 'skip');
+  assert.equal(startConnections(session, id), false, 'refused while Figma pending');
   setConnection(session, id, 'Figma', 'skip');
-  assert.equal(allResolved(session.pendingConnections), true);
-  assert.equal(startConnections(session, id), true, 'allowed once all resolved');
-  assert.equal(session.pendingConnections, null, 'pending cleared after start');
+  assert.equal(startConnections(session, id), true);
+  assert.equal(session.pendingConnections, null);
   await Promise.resolve();
-  assert.match(resolved, /Connected: Jira/);
-  assert.match(resolved, /Skipped: Figma/);
+  assert.match(resolved, /Connected: none\./);
+  assert.match(resolved, /Not connected: Linear, Figma\./);
 });
 
 if (failures) { console.error(`\n${failures} failure(s)`); process.exit(1); }
