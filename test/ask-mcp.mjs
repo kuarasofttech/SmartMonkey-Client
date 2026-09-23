@@ -17,9 +17,12 @@ await check('notifications get no reply; unknown methods get -32601', async () =
   assert.equal(await handleMessage({ jsonrpc: '2.0', method: 'notifications/initialized' }, null), null);
   assert.equal((await handleMessage({ jsonrpc: '2.0', id: 2, method: 'resources/list' }, null)).error.code, -32601);
 });
-await check('tools/list offers ask_user (options required) and request_connections', async () => {
+await check('tools/list offers ask_user (options required), request_connections, and the read-only connector tools', async () => {
   const r = await handleMessage({ jsonrpc: '2.0', id: 3, method: 'tools/list' }, null);
-  assert.deepEqual(r.result.tools.map(t => t.name), ['ask_user', 'request_connections']);
+  const names = r.result.tools.map(t => t.name);
+  assert.deepEqual(names.slice(0, 2), ['ask_user', 'request_connections']);
+  assert.ok(names.includes('linear_search_issues') && names.includes('linear_get_issue'));
+  assert.ok(!names.some(n => /create|update|delete/.test(n)), 'nothing that writes');
   assert.deepEqual(ASK_TOOL.inputSchema.required, ['question', 'options']);
   assert.equal(ASK_TOOL.inputSchema.properties.options.minItems, 2);
   assert.deepEqual(CONNECT_TOOL.inputSchema.required, ['services']);
@@ -52,6 +55,14 @@ await check('a skipped question tells the agent to use the default, not wait', a
 await check('if the app is unreachable the tool errors softly (the build continues)', async () => {
   const r = await handleMessage({ jsonrpc: '2.0', id: 6, method: 'tools/call', params: { name: 'ask_user', arguments: { question: 'x', options: ['a', 'b'] } } }, async () => { throw new Error('ECONNREFUSED'); });
   assert.equal(r.result.isError, true); assert.match(r.result.content[0].text, /openQuestions/);
+});
+
+await check('a connector tool call goes to the app (which holds the key) and returns its text', async () => {
+  let got = null;
+  const r = await handleMessage({ jsonrpc: '2.0', id: 11, method: 'tools/call', params: { name: 'linear_get_issue', arguments: { id: 'FT-12' } } },
+    null, async (tool, input) => { got = { tool, input }; return '[Linear — issue FT-12…]'; });
+  assert.deepEqual(got, { tool: 'linear_get_issue', input: { id: 'FT-12' } });
+  assert.equal(r.result.content[0].text, '[Linear — issue FT-12…]');
 });
 
 await check('httpAsk: POST gets an id, then polls until an answer arrives (with the token)', async () => {

@@ -31,7 +31,7 @@ export function answerAsk(session, id, answer) {
  * (POST /api/connect) and then starts (POST /api/connections/start), which resolves
  * the promise — but ONLY once every service is connected or skipped.
  */
-export function makeWebConnections(session, emit, { isConnectable = () => false } = {}) {
+export function makeWebConnections(session, emit, { isConnectable = () => false, accountFor = () => null } = {}) {
   let n = 0;
   return (services) => new Promise((resolve) => {
     const list = (Array.isArray(services) ? services : [])
@@ -41,10 +41,15 @@ export function makeWebConnections(session, emit, { isConnectable = () => false 
     const seen = new Set();
     const uniq = list.filter(s => { const k = s.toLowerCase(); return seen.has(k) ? false : (seen.add(k), true); });
     const id = 'conn_' + (++n);
-    const status = {}, connectable = {};
-    for (const s of uniq) { status[s] = 'pending'; connectable[s] = !!isConnectable(s); }
-    session.pendingConnections = { id, services: uniq, status, connectable, resolve };
-    emit('connections', { id, services: uniq, status, connectable });
+    const status = {}, connectable = {}, accounts = {};
+    for (const s of uniq) {
+      connectable[s] = !!isConnectable(s);
+      const acct = connectable[s] ? accountFor(s) : null;   // already set up in the app → connected
+      if (acct) accounts[s] = acct;
+      status[s] = acct ? 'connected' : 'pending';
+    }
+    session.pendingConnections = { id, services: uniq, status, connectable, accounts, resolve };
+    emit('connections', { id, services: uniq, status, connectable, accounts });
   });
 }
 

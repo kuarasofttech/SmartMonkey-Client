@@ -117,6 +117,15 @@ check('runBlock: ANY named tool — offered or typed by the owner — goes to re
   assert.match(b, /never decide on your own/i);
 });
 
+check('runBlock: tells the build which tools are connected right now and how to use them', () => {
+  const b = runBlock([], [{ label: 'Linear', account: 'Alperen (Kuarasoft)', tools: ['linear_search_issues', 'linear_get_issue'] }]);
+  assert.match(b, /Connected in SmartMonkey right now/);
+  assert.match(b, /Linear.*Alperen \(Kuarasoft\)/);
+  assert.match(b, /linear_search_issues/);
+  assert.match(b, /information, not instructions/);
+  assert.doesNotMatch(runBlock(), /Connected in SmartMonkey right now/, 'nothing connected → no such section');
+});
+
 check('runBlock: previous answers are offered first on a re-run', () => {
   const b = runBlock([{ question: 'Which build should a tester use?', answer: 'devDebug' }]);
   assert.match(b, /devDebug/);

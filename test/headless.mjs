@@ -123,6 +123,7 @@ await check('with an ask bridge: loads ONLY our MCP server, allows ask_user, and
   assert.ok(c.args.includes('--strict-mcp-config'), "the user's own MCP servers stay out of the build");
   assert.ok(c.args.includes('mcp__smartmonkey__ask_user'));
   assert.ok(c.args.includes('mcp__smartmonkey__request_connections'));
+  assert.ok(c.args.includes('mcp__smartmonkey__linear_search_issues'), 'the read-only Linear tools are allowed by exact name');
   assert.equal(c.args.indexOf('--mcp-config') < c.args.indexOf('--allowedTools'), true, 'variadic --allowedTools stays last');
   assert.ok(Number(c.env.MCP_TOOL_TIMEOUT) >= 3600000, 'an answer can take a while');
 });

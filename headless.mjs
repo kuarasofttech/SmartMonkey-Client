@@ -13,6 +13,7 @@
 import { spawn as _spawn } from 'node:child_process';
 import { relative, isAbsolute } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { allTools } from './connectors/index.mjs';
 
 const ASK_MCP = fileURLToPath(new URL('./ask-mcp.mjs', import.meta.url));
 const ASK_TIMEOUT_MS = String(24 * 3600 * 1000);   // the owner may step away; Stop is how a run ends early
@@ -34,7 +35,7 @@ export function headlessCommand(driver, askBridge) {
   if (askBridge) {
     const cfg = { mcpServers: { smartmonkey: { command: process.execPath, args: [ASK_MCP], env: { SMARTMONKEY_ASK_URL: askBridge.url, SMARTMONKEY_ASK_TOKEN: askBridge.token } } } };
     args.push('--mcp-config', JSON.stringify(cfg), '--strict-mcp-config');
-    tools.push('mcp__smartmonkey__ask_user', 'mcp__smartmonkey__request_connections');
+    tools.push('mcp__smartmonkey__ask_user', 'mcp__smartmonkey__request_connections', ...allTools().map(t => `mcp__smartmonkey__${t.name}`));
     env.MCP_TOOL_TIMEOUT = ASK_TIMEOUT_MS;
   }
   args.push('--allowedTools', ...tools);   // variadic — must stay last
@@ -53,6 +54,7 @@ export function parseClaudeLine(line, cwd) {
       if (b.type === 'text' && b.text && b.text.trim()) out.push({ type: 'text', data: b.text });
       else if (b.type === 'tool_use' && b.name === 'mcp__smartmonkey__ask_user') out.push({ type: 'tool', data: { name: 'asking you', summary: (b.input && b.input.question) || '' } });
       else if (b.type === 'tool_use' && b.name === 'mcp__smartmonkey__request_connections') out.push({ type: 'tool', data: { name: 'connect', summary: ((b.input && b.input.services) || []).join(', ') } });
+      else if (b.type === 'tool_use' && /^mcp__smartmonkey__linear_/.test(b.name)) out.push({ type: 'tool', data: { name: 'Linear', summary: `${b.name.replace('mcp__smartmonkey__linear_', '').replace(/_/g, ' ')} ${(b.input && (b.input.query || b.input.id)) || ''}`.trim() } });
       else if (b.type === 'tool_use') out.push({ type: 'tool', data: { name: b.name, summary: summarize(b.input, cwd) } });
     }
     return out;

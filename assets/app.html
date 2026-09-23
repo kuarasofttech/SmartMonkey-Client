@@ -114,6 +114,19 @@
   .b-counts { font-size:13px; color:var(--slate); margin-top:2px; }
   .b-acts { display:flex; gap:6px; flex-wrap:wrap; justify-content:flex-end; }
   .b-acts button { padding:6px 11px; font-size:13px; }
+  .connector { padding:12px 0; border-top:1px solid var(--line-2); }
+  .connector:first-child { border-top:0; padding-top:4px; }
+  .connector-head { display:flex; align-items:center; gap:12px; }
+  .connector-name { font-weight:700; color:var(--ink); flex:1; }
+  .connector-state { font-size:13px; color:var(--slate); }
+  .connector-state.ok { color:var(--ok); font-weight:600; }
+  .connector-head button { padding:6px 12px; font-size:13px; }
+  .connector-form { margin-top:10px; }
+  .connector-form .help { font-size:12px; color:var(--slate); margin:4px 0 0; }
+  .connector-form .row { margin-top:8px; }
+  .connector-err { color:var(--bad); font-size:13px; margin-top:6px; }
+  .conn-setup { display:flex; gap:8px; align-items:center; }
+  .conn-setup input { width:220px; padding:6px 10px; font-size:13px; }
   .hide { display:none; }
   @media (prefers-reduced-motion: reduce) { * { transition:none !important; } }
 </style>
@@ -161,6 +174,13 @@
     </div>
 
     <div class="status" id="aiStatus"></div>
+  </div>
+
+  <div class="card" id="connCard">
+    <h2 class="plain">Connections</h2>
+    <p class="sub">Let the build read your project's tools, such as your issues and specs. SmartMonkey only ever reads; your keys stay in your OS keychain and are never shown to the AI.</p>
+    <div id="connectors"><p class="status">Loading…</p></div>
+    <p class="status" id="comingLater"></p>
   </div>
 
   <div class="card">
@@ -342,6 +362,7 @@ function renderConnections(c) {
   h.appendChild(el('div', 'status', anyReal
     ? 'Connect or skip each, then continue.'
     : "SmartMonkey can't connect to these yet, so the build will use your repo and your answers instead."));
+  if (anyReal) h.lastChild.textContent = 'Connected tools are read directly by the build (read-only). Set up or skip the rest, then continue.';
   box.appendChild(h);
   const list = el('div'); list.id = 'conns-list'; box.appendChild(list);
   const start = el('button', null, anyReal ? 'Continue' : 'Continue without them'); start.id = 'conns-start';
@@ -367,10 +388,20 @@ function updateConnections(c) {
     row.appendChild(el('span', 'conn-name', svc));
     if (!real) row.appendChild(el('span', 'conn-badge skipped', "Can't connect yet"));
     else if (st === 'pending') {
-      const conn = el('button', 'conn-btn', 'Connect'); conn.onclick = () => setConn(c.id, svc, 'connect');
+      // a real connector that isn't set up yet: paste the key right here
+      const setup = el('span', 'conn-setup');
+      const key = el('input'); key.type = 'password'; key.placeholder = `${svc} API key`; key.autocomplete = 'off';
+      const conn = el('button', 'conn-btn', 'Connect');
+      conn.onclick = async () => {
+        conn.disabled = true; conn.textContent = 'Testing…';
+        const id = svc.toLowerCase().replace(/[^a-z0-9]/g, '');
+        const res = await api('POST', `/api/connectors/${id}`, { fields: { apiKey: key.value } });
+        if (!res || !res.ok) { conn.disabled = false; conn.textContent = 'Connect'; key.value = ''; key.placeholder = (res && res.error) || 'That key did not work'; return; }
+        await setConn(c.id, svc, 'connect'); loadConnectors();
+      };
       const skip = el('button', 'conn-btn conn-skip', 'Skip'); skip.onclick = () => setConn(c.id, svc, 'skip');
-      row.appendChild(conn); row.appendChild(skip);
-    } else row.appendChild(el('span', 'conn-badge ' + st, st === 'connected' ? 'Connected ✓' : 'Not connected'));
+      setup.appendChild(key); setup.appendChild(conn); setup.appendChild(skip); row.appendChild(setup);
+    } else row.appendChild(el('span', 'conn-badge ' + st, st === 'connected' ? `Connected${c.accounts && c.accounts[svc] ? ' as ' + c.accounts[svc] : ''} ✓` : 'Not connected'));
     list.appendChild(row);
   }
   // only the tools we can really connect need a decision; the rest are skipped on Continue
@@ -405,6 +436,50 @@ for (const t of ['text', 'tool', 'answered', 'ask', 'connections', 'done', 'stop
     if (t === 'stopped') { $('asks').innerHTML = ''; flagQuestion(); }
     if (t === 'done' || t === 'stopped' || t === 'error') { refresh(); loadHistory(); }
   });
+}
+
+// ---- connections ----
+async function loadConnectors() {
+  const r = await api('GET', '/api/connectors');
+  const box = $('connectors'); box.innerHTML = '';
+  for (const c of (r && r.connectors) || []) box.appendChild(connectorRow(c));
+  $('comingLater').textContent = r && r.comingLater && r.comingLater.length ? `Coming later: ${r.comingLater.join(', ')}.` : '';
+}
+function connectorRow(c) {
+  const row = el('div', 'connector');
+  const head = el('div', 'connector-head');
+  head.appendChild(el('span', 'connector-name', c.label));
+  const state = el('span', 'connector-state' + (c.status === 'connected' ? ' ok' : ''), c.status === 'connected' ? `Connected as ${c.account} ✓` : 'Not set up');
+  head.appendChild(state);
+  const form = el('div', 'connector-form hide');
+  if (c.status === 'connected') {
+    const change = el('button', 'ghost', 'Change key'); change.onclick = () => form.classList.toggle('hide');
+    const off = el('button', 'ghost', 'Disconnect'); off.onclick = async () => { await api('DELETE', `/api/connectors/${c.id}`); loadConnectors(); };
+    head.appendChild(change); head.appendChild(off);
+  } else {
+    const setup = el('button', null, 'Set up'); setup.onclick = () => { form.classList.toggle('hide'); const i = form.querySelector('input'); if (i) i.focus(); };
+    head.appendChild(setup);
+  }
+  row.appendChild(head);
+  const inputs = {};
+  for (const f of c.fields) {
+    form.appendChild(el('label', null, f.label));
+    const i = el('input'); i.type = f.secret ? 'password' : 'text'; i.autocomplete = 'off'; inputs[f.id] = i; form.appendChild(i);
+    if (f.help) form.appendChild(el('p', 'help', f.help));
+  }
+  const err = el('p', 'connector-err hide');
+  const acts = el('div', 'row');
+  const save = el('button', null, 'Test and save');
+  save.onclick = async () => {
+    save.disabled = true; save.textContent = 'Testing…'; err.classList.add('hide');
+    const fields = {}; for (const [k, i] of Object.entries(inputs)) fields[k] = i.value;
+    const res = await api('POST', `/api/connectors/${c.id}`, { fields });
+    if (res && res.ok) loadConnectors();
+    else { err.textContent = (res && res.error) || 'That did not work.'; err.classList.remove('hide'); save.disabled = false; save.textContent = 'Test and save'; }
+  };
+  acts.appendChild(save); form.appendChild(acts); form.appendChild(err);
+  row.appendChild(form);
+  return row;
 }
 
 // ---- build history ----
@@ -483,6 +558,7 @@ async function replayLatest() {
 }
 
 refresh();
+loadConnectors();
 replayLatest();
 </script>
 </body>

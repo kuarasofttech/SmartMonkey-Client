@@ -18,6 +18,7 @@ import * as embed from './embed.mjs';
 import { DRIVERS, detectDrivers as defaultDetectDrivers } from './drivers.mjs';
 import { APP_ID } from './lock.mjs';
 import { makeBuildStore } from './buildstore.mjs';
+import { CONNECTORS, COMING_LATER, findConnector, findTool, allTools } from './connectors/index.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ASSETS = existsSync(join(__dirname, 'assets')) ? join(__dirname, 'assets') : resolve(__dirname, '../src/assets/blueprint-kit');
@@ -55,10 +56,25 @@ function defaultRunCli(opts) {
 }
 
 export function createApp({ cwd = process.cwd(), secrets = makeSecrets(), modelFactory,
-  detectDrivers = defaultDetectDrivers, runCli = defaultRunCli, openBrowser = () => {}, askPollMs = 25_000 } = {}) {
+  detectDrivers = defaultDetectDrivers, runCli = defaultRunCli, openBrowser = () => {}, askPollMs = 25_000, connectorFetch = fetch } = {}) {
   const KIT = join(resolve(cwd), 'smartmonkey');
   const INTERVIEW = join(KIT, 'interview.json');
   const builds = makeBuildStore(KIT);
+
+  // ---- connections: the app holds the keys (OS keychain) and makes the calls; the agent never sees a key ----
+  const credKey = c => `connector:${c.id}`;
+  const loadCreds = c => { try { const raw = c && secrets.get(credKey(c)); return raw ? JSON.parse(raw) : null; } catch { return null; } };
+  const accountFor = name => { const c = findConnector(name); const cr = loadCreds(c); return cr ? (cr._account || 'connected') : null; };
+  const connectionOpts = { isConnectable: name => !!findConnector(name), accountFor };
+  const summarizeInput = input => JSON.stringify(input || {}).slice(0, 200);
+  async function callConnector(toolName, input) {
+    const t = findTool(toolName); const c = t && findConnector(t.connector);
+    const creds = loadCreds(c);
+    if (!creds) return `${c.label} isn't connected in SmartMonkey. Call request_connections with "${c.label}" so the owner can connect it — don't guess its contents.`;
+    const text = await t.run(creds, input, { fetchImpl: connectorFetch });
+    builds.recordCall(session.buildId, { tool: toolName, input: summarizeInput(input), chars: text.length, ok: !/^\w+ error:/.test(text), at: new Date().toISOString() });
+    return text;
+  }
   builds.recover();   // a build still marked running from a previous app session did not finish
   builds.importLegacy();   // a blueprint made before history existed shows up as the last build right away
   let port = null;   // set by listen(); used to bring the browser back after a terminal-window run
@@ -99,12 +115,13 @@ export function createApp({ cwd = process.cwd(), secrets = makeSecrets(), modelF
   function launchEmbedded(prompt, gen) {
     const live = () => gen === session.gen;
     const stopped = () => { const e = new Error('stopped'); e.stopped = true; return e; };
-    const webconn = makeWebConnections(session, emit);
+    const webconn = makeWebConnections(session, emit, connectionOpts);
     const base = embed.makeToolRunner(cwd, session.webask, webconn);
-    const runTool = async (name, input) => { if (!live()) throw stopped(); emit('tool', { name, summary: input?.path || input?.query || input?.question || input?.args?.join(' ') || '' }); return base(name, input); };
+    const runTool = async (name, input) => { if (!live()) throw stopped(); emit('tool', { name, summary: input?.path || input?.query || input?.question || input?.id || input?.args?.join(' ') || '' }); return findTool(name) ? callConnector(name, input) : base(name, input); };
     const model = make(session.ai.provider, session.ai.model, session.key);
     const callModel = async (...a) => { if (!live()) throw stopped(); return model(...a); };
-    embed.runAgent({ prompt, callModel, runTool, onText: t => { if (live() && t && t.trim()) emit('text', t); } })
+    const tools = [...embed.TOOLS, ...allTools().map(t => ({ name: t.name, description: t.description, input_schema: t.inputSchema }))];
+    embed.runAgent({ prompt, callModel, runTool, tools, onText: t => { if (live() && t && t.trim()) emit('text', t); } })
       .then(() => { if (!live()) return; session.status = 'done'; session.running = false; finish(); })
       .catch(e => { if (live()) fail(e); });
   }
@@ -147,7 +164,7 @@ export function createApp({ cwd = process.cwd(), secrets = makeSecrets(), modelF
         blueprint: { exists: existsSync(join(KIT, 'blueprint.json')) },
         run: { status: session.status, error: session.error },
         pendingAsk: session.pendingAsk ? { id: session.pendingAsk.id, question: session.pendingAsk.question, options: session.pendingAsk.options, multi: !!session.pendingAsk.multi } : null,
-        pendingConnections: session.pendingConnections ? { id: session.pendingConnections.id, services: session.pendingConnections.services, status: session.pendingConnections.status, connectable: session.pendingConnections.connectable } : null,
+        pendingConnections: session.pendingConnections ? { id: session.pendingConnections.id, services: session.pendingConnections.services, status: session.pendingConnections.status, connectable: session.pendingConnections.connectable, accounts: session.pendingConnections.accounts } : null,
       });
     }
 
@@ -182,7 +199,7 @@ export function createApp({ cwd = process.cwd(), secrets = makeSecrets(), modelF
       const gen = session.gen, ask = session.webask;
       const options = Array.isArray(body.options) ? body.options.map(String).filter(Boolean).slice(0, 12) : [];
       const services = Array.isArray(body.services) ? body.services.map(String).filter(Boolean) : [];
-      const connect = () => makeWebConnections(session, emit)(services)
+      const connect = () => makeWebConnections(session, emit, connectionOpts)(services)
         .then(sum => String(sum).replace(/^The user finished the connect step\.\s*/, '').replace(/\s*Now build the blueprint\.$/, ''));
       askChain = askChain
         .then(() => (gen !== session.gen || entry.answer !== undefined ? ''
@@ -198,6 +215,36 @@ export function createApp({ cwd = process.cwd(), secrets = makeSecrets(), modelF
       if (!entry) return sendJson(res, { error: 'unknown question' }, 404);
       if (entry.answer === undefined) await new Promise(r => { entry.waiters.push(r); setTimeout(r, askPollMs); });
       return entry.answer === undefined ? sendJson(res, { pending: true }) : sendJson(res, { answer: entry.answer });
+    }
+
+    if (path === '/api/connectors' && method === 'GET') {
+      return sendJson(res, {
+        connectors: CONNECTORS.map(c => { const cr = loadCreds(c); return { id: c.id, label: c.label, fields: c.fields.map(({ id, label, help, secret }) => ({ id, label, help, secret })), status: cr ? 'connected' : 'not_set_up', account: cr ? cr._account || null : null }; }),
+        comingLater: COMING_LATER,
+        keychain: secrets.available(),
+      });
+    }
+    const cm = path.match(/^\/api\/connectors\/([\w-]+)$/);
+    if (cm) {
+      const c = CONNECTORS.find(x => x.id === cm[1]);
+      if (!c) return sendJson(res, { error: 'unknown connector' }, 404);
+      if (method === 'DELETE') { secrets.delete(credKey(c)); return sendJson(res, { ok: true }); }
+      if (method === 'POST') {
+        const body = await readBody(req);
+        const fields = {}; for (const f of c.fields) fields[f.id] = String((body.fields || {})[f.id] || '').trim();
+        const t = await c.test(fields, { fetchImpl: connectorFetch });   // only a key that really works is saved
+        if (!t.ok) return sendJson(res, { error: t.error || 'the test call failed' }, 400);
+        secrets.set(credKey(c), JSON.stringify({ ...fields, _account: t.account }));
+        return sendJson(res, { ok: true, account: t.account });
+      }
+    }
+
+    if (path === '/api/connector-call' && method === 'POST') {
+      if (req.headers['x-smartmonkey-token'] !== askToken) return sendJson(res, { error: 'forbidden' }, 403);
+      if (!session.running) return sendJson(res, { error: 'no build is running' }, 409);
+      const body = await readBody(req);
+      if (!findTool(body.tool)) return sendJson(res, { error: 'unknown tool' }, 404);
+      return sendJson(res, { text: await callConnector(body.tool, body.input || {}) });
     }
 
     if (path === '/api/builds' && method === 'GET') {
@@ -248,13 +295,14 @@ export function createApp({ cwd = process.cwd(), secrets = makeSecrets(), modelF
 
       // Tools the answers draw on are connected (or skipped) BEFORE anything is built.
       const services = answers ? servicesFor(answers) : [];
-      const gate = services.length ? makeWebConnections(session, emit)(services) : Promise.resolve(null);
+      const gate = services.length ? makeWebConnections(session, emit, connectionOpts)(services) : Promise.resolve(null);
       gate.then(summary => {
         if (gen !== session.gen) return;   // stopped while waiting at the connect panel
         const connections = summary && summary.replace(/^The user finished the connect step\.\s*/, '').replace(/\s*Now build the blueprint\.$/, '');
         // Pre-supplied answers (API callers) skip the interview; otherwise it happens during the run.
         const start = basedOn ? basedOnBlock(builds.get(basedOn).meta) : '';
-        const prompt = (answers ? answersBlock(answers, connections) : runBlock(loadOwnerAnswers())) + start + PROMPT();
+        const connected = CONNECTORS.map(c => ({ c, cr: loadCreds(c) })).filter(x => x.cr).map(({ c, cr }) => ({ label: c.label, account: cr._account, tools: c.tools.map(t => t.name) }));
+        const prompt = (answers ? answersBlock(answers, connections) : runBlock(loadOwnerAnswers(), connected)) + start + PROMPT();
         if (driver) launchCli(driver, prompt, gen); else launchEmbedded(prompt, gen);
       });
       return sendJson(res, { ok: true }, 202);
@@ -275,6 +323,7 @@ export function createApp({ cwd = process.cwd(), secrets = makeSecrets(), modelF
 
     if (path === '/api/connect' && method === 'POST') {
       const body = await readBody(req);   // { id, service, action: 'connect' | 'skip' }
+      if (body.action === 'connect' && !accountFor(body.service)) return sendJson(res, { error: `${body.service} isn't set up yet — add it under Connections first` }, 409);
       if (!setConnection(session, body.id, body.service, body.action)) return sendJson(res, { error: 'no matching pending connection' }, 409);
       return sendJson(res, { ok: true, status: session.pendingConnections?.status || null });
     }

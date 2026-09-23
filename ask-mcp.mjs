@@ -13,6 +13,11 @@
 import { createInterface } from 'node:readline';
 import { fileURLToPath } from 'node:url';
 import { resolve } from 'node:path';
+import { allTools, findTool } from './connectors/index.mjs';
+
+// The read-only connector tools (Linear…). Always listed; a call for one that
+// isn't set up gets a clear "not connected" answer from the app.
+const CONNECTOR_TOOLS = allTools().map(t => ({ name: t.name, description: t.description, inputSchema: t.inputSchema }));
 
 export const ASK_TOOL = {
   name: 'ask_user',
@@ -35,7 +40,7 @@ export const CONNECT_TOOL = {
 };
 
 /** Handle one JSON-RPC message; returns the response object, or null for notifications. `ask` does the real work. */
-export async function handleMessage(msg, ask) {
+export async function handleMessage(msg, ask, callConnector = async () => 'Connectors are not available here.') {
   const reply = result => ({ jsonrpc: '2.0', id: msg.id, result });
   const error = (code, message) => ({ jsonrpc: '2.0', id: msg.id, error: { code, message } });
   if (msg.id === undefined || msg.id === null) return null;   // notification (e.g. notifications/initialized)
@@ -45,7 +50,7 @@ export async function handleMessage(msg, ask) {
     case 'ping':
       return reply({});
     case 'tools/list':
-      return reply({ tools: [ASK_TOOL, CONNECT_TOOL] });
+      return reply({ tools: [ASK_TOOL, CONNECT_TOOL, ...CONNECTOR_TOOLS] });
     case 'tools/call': {
       const name = msg.params?.name, a = msg.params?.arguments || {};
       const soft = text => reply({ content: [{ type: 'text', text }], isError: true });
@@ -54,6 +59,10 @@ export async function handleMessage(msg, ask) {
         if (!services.length) return soft('Give the tool names in `services`.');
         try { return reply({ content: [{ type: 'text', text: await ask({ kind: 'connections', services }) }] }); }
         catch (e) { return soft(`Could not reach the app (${e.message}). Treat the tools as not connected and continue.`); }
+      }
+      if (findTool(name)) {
+        try { return reply({ content: [{ type: 'text', text: await callConnector(name, a) }] }); }
+        catch (e) { return soft(`Could not reach the app (${e.message}). Continue without this source.`); }
       }
       if (name !== ASK_TOOL.name) return error(-32602, `unknown tool ${name}`);
       const options = Array.isArray(a.options) ? a.options.map(String).filter(Boolean) : [];
@@ -102,9 +111,16 @@ export function httpAsk(url, token, { fetchImpl = fetch, sleep = ms => new Promi
 // Exact-path match: a looser "ends with ask-mcp.mjs" check also fired when test/ask-mcp.mjs imported this.
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const ask = httpAsk(process.env.SMARTMONKEY_ASK_URL, process.env.SMARTMONKEY_ASK_TOKEN);
+  const callUrl = String(process.env.SMARTMONKEY_ASK_URL || '').replace(/\/api\/agent-ask$/, '/api/connector-call');
+  const callConnector = async (tool, input) => {
+    const res = await fetch(callUrl, { method: 'POST', headers: { 'content-type': 'application/json', 'x-smartmonkey-token': process.env.SMARTMONKEY_ASK_TOKEN || '' }, body: JSON.stringify({ tool, input }) });
+    const j = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(j.error || `HTTP ${res.status}`);
+    return String(j.text || '');
+  };
   const rl = createInterface({ input: process.stdin });
   rl.on('line', line => {
     let msg; try { msg = JSON.parse(line); } catch { return; }
-    handleMessage(msg, ask).then(r => { if (r) process.stdout.write(JSON.stringify(r) + '\n'); });
+    handleMessage(msg, ask, callConnector).then(r => { if (r) process.stdout.write(JSON.stringify(r) + '\n'); });
   });
 }

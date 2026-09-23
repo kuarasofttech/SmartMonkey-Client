@@ -18,7 +18,7 @@ async function check(name, fn) { try { await fn(); console.log(`  ok  ${name}`);
 const req = (port, method, path, body) => new Promise((resolve, reject) => {
   const data = body ? JSON.stringify(body) : null;
   const r = http.request({ host: '127.0.0.1', port, method, path, headers: data ? { 'content-type': 'application/json', 'content-length': Buffer.byteLength(data) } : {} }, res => {
-    let buf = ''; res.on('data', c => buf += c); res.on('end', () => resolve({ status: res.statusCode, json: buf ? JSON.parse(buf) : null }));
+    let buf = ''; res.on('data', c => buf += c); res.on('end', () => resolve({ status: res.statusCode, json: (() => { try { return buf ? JSON.parse(buf) : null; } catch { return { raw: buf }; } })() }));
   });
   r.on('error', reject); if (data) r.write(data); r.end();
 });
@@ -336,7 +336,7 @@ await check('CLI mode: runCli gets the answers-first prompt, and its progress ev
 const reqH = (port, method, path, body, headers = {}) => new Promise((resolve, reject) => {
   const data = body ? JSON.stringify(body) : null;
   const r = http.request({ host: '127.0.0.1', port, method, path, headers: { ...(data ? { 'content-type': 'application/json', 'content-length': Buffer.byteLength(data) } : {}), ...headers } }, res => {
-    let buf = ''; res.on('data', c => buf += c); res.on('end', () => resolve({ status: res.statusCode, json: buf ? JSON.parse(buf) : null }));
+    let buf = ''; res.on('data', c => buf += c); res.on('end', () => resolve({ status: res.statusCode, json: (() => { try { return buf ? JSON.parse(buf) : null; } catch { return { raw: buf }; } })() }));
   });
   r.on('error', reject); if (data) r.write(data); r.end();
 });
@@ -588,6 +588,95 @@ await check('builds: a blueprint made before history existed shows up as the las
   assert.equal(list[0].imported, true); assert.equal(list[0].current, true); assert.equal(list[0].counts.screens, 2);
   assert.match(readFileSync(join(kit, '.gitignore'), 'utf8'), /^builds\/$/m, 'history is git-ignored from the start');
   app.server.close();
+});
+
+// ---- connections: the local read-only middle layer --------------------------------------
+function linearFetch(log = []) {
+  return async (url, opts) => {
+    const body = JSON.parse(opts.body); log.push({ auth: opts.headers.Authorization, body });
+    if (opts.headers.Authorization !== 'lin_good') return { ok: false, status: 401, json: async () => ({ errors: [{ message: 'Authentication required, not authenticated' }] }) };
+    if (/Viewer/.test(body.query)) return { ok: true, json: async () => ({ data: { viewer: { name: 'Alperen', organization: { name: 'Kuarasoft' } } } }) };
+    if (/Search/.test(body.query)) return { ok: true, json: async () => ({ data: { searchIssues: { nodes: [{ identifier: 'FT-12', title: 'Tag limit paywall', state: { name: 'Todo' } }] } } }) };
+    return { ok: true, json: async () => ({ data: {} }) };
+  };
+}
+
+await check('connections: Linear is listed; a bad key is refused and NOT saved; a good key is tested, saved, and shown as connected', async () => {
+  const cwd = mkdtempSync(join(tmpdir(), 'sm-app-'));
+  const app = createApp({ cwd, secrets: makeSecrets({ platform: 'win32' }), connectorFetch: linearFetch() });
+  const port = await app.listen(0);
+  const list0 = (await req(port, 'GET', '/api/connectors')).json;
+  const lin0 = list0.connectors.find(c => c.id === 'linear');
+  assert.equal(lin0.status, 'not_set_up'); assert.ok(list0.comingLater.includes('Jira'));
+  const bad = await req(port, 'POST', '/api/connectors/linear', { fields: { apiKey: 'lin_bad' } });
+  assert.equal(bad.status, 400); assert.match(bad.json.error, /Authentication/);
+  assert.equal((await req(port, 'GET', '/api/connectors')).json.connectors[0].status, 'not_set_up', 'a failed test saves nothing');
+  const good = await req(port, 'POST', '/api/connectors/linear', { fields: { apiKey: 'lin_good' } });
+  assert.equal(good.status, 200); assert.equal(good.json.account, 'Alperen (Kuarasoft)');
+  const lin = (await req(port, 'GET', '/api/connectors')).json.connectors[0];
+  assert.equal(lin.status, 'connected'); assert.equal(lin.account, 'Alperen (Kuarasoft)');
+  assert.ok(!JSON.stringify((await req(port, 'GET', '/api/connectors')).json).includes('lin_good'), 'the key is never sent back');
+  assert.equal((await req(port, 'DELETE', '/api/connectors/linear')).status, 200);
+  assert.equal((await req(port, 'GET', '/api/connectors')).json.connectors[0].status, 'not_set_up');
+  app.server.close();
+});
+
+await check('connections: the build calls Linear through the app (token-protected), and every call is audited in the build', async () => {
+  const cwd = mkdtempSync(join(tmpdir(), 'sm-app-'));
+  const calls = [];
+  const runs = [];
+  const runCli = o => { runs.push(o); return { launched: true, headless: true, cancel() {} }; };
+  const app = createApp({ cwd, secrets: makeSecrets({ platform: 'win32' }), connectorFetch: linearFetch(calls), detectDrivers: () => [{ id: 'claude', bin: 'claude', label: 'Claude Code' }], runCli });
+  const port = await app.listen(0);
+  await req(port, 'POST', '/api/connectors/linear', { fields: { apiKey: 'lin_good' } });
+  await req(port, 'POST', '/api/ai', { mode: 'cli', driver: 'claude' });
+  await req(port, 'POST', '/api/generate'); await waitFor(() => runs.length === 1);
+  const H = { 'x-smartmonkey-token': runs[0].askBridge.token };
+  assert.equal((await reqH(port, 'POST', '/api/connector-call', { tool: 'linear_search_issues', input: { query: 'paywall' } }, { 'x-smartmonkey-token': 'nope' })).status, 403);
+  assert.equal((await reqH(port, 'POST', '/api/connector-call', { tool: 'linear_delete_issue', input: {} }, H)).status, 404, 'only known read tools exist');
+  const r = await reqH(port, 'POST', '/api/connector-call', { tool: 'linear_search_issues', input: { query: 'paywall' } }, H);
+  assert.equal(r.status, 200); assert.match(r.json.text, /FT-12: Tag limit paywall/);
+  assert.equal(calls.at(-1).auth, 'lin_good', 'the app, not the agent, holds the key');
+  const b = (await req(port, 'GET', '/api/builds')).json.builds[0];
+  const meta = (await req(port, 'GET', `/api/builds/${b.id}`)).json.meta;
+  assert.equal(meta.connectorCalls.length, 1);
+  assert.equal(meta.connectorCalls[0].tool, 'linear_search_issues');
+  assert.match(meta.connectorCalls[0].input, /paywall/);
+  app.server.close();
+});
+
+await check('connections: a tool that is not set up tells the build to ask for it, instead of failing silently', async () => {
+  const { app, run } = pendingCliApp();
+  const port = await app.listen(0);
+  await req(port, 'POST', '/api/ai', { mode: 'cli', driver: 'claude' });
+  await req(port, 'POST', '/api/generate'); await waitFor(() => run.bridge);
+  const r = await reqH(port, 'POST', '/api/connector-call', { tool: 'linear_search_issues', input: { query: 'x' } }, { 'x-smartmonkey-token': run.bridge.token });
+  assert.equal(r.status, 200); assert.match(r.json.text, /isn't connected.*request_connections/);
+  app.server.close();
+});
+
+await check('connections: when the build asks for a set-up tool, the panel shows it already connected', async () => {
+  const cwd = mkdtempSync(join(tmpdir(), 'sm-app-'));
+  const runs = [];
+  const runCli = o => { runs.push(o); return { launched: true, headless: true, cancel() {} }; };
+  const app = createApp({ cwd, secrets: makeSecrets({ platform: 'win32' }), connectorFetch: linearFetch(), detectDrivers: () => [{ id: 'claude', bin: 'claude', label: 'Claude Code' }], runCli, askPollMs: 150 });
+  const port = await app.listen(0);
+  const s = sse(port);
+  await req(port, 'POST', '/api/connectors/linear', { fields: { apiKey: 'lin_good' } });
+  await req(port, 'POST', '/api/ai', { mode: 'cli', driver: 'claude' });
+  await req(port, 'POST', '/api/generate'); await waitFor(() => runs.length === 1);
+  const H = { 'x-smartmonkey-token': runs[0].askBridge.token };
+  const posted = await reqH(port, 'POST', '/api/agent-ask', { kind: 'connections', services: ['Linear', 'Jira'] }, H);
+  await waitFor(() => s.has('connections'));
+  const c = s.get('connections').data;
+  assert.deepEqual(c.status, { Linear: 'connected', Jira: 'pending' });
+  assert.deepEqual(c.connectable, { Linear: true, Jira: false });
+  assert.equal(c.accounts.Linear, 'Alperen (Kuarasoft)');
+  await req(port, 'POST', '/api/connect', { id: c.id, service: 'Jira', action: 'skip' });
+  await req(port, 'POST', '/api/connections/start', { id: c.id });
+  const got = await reqH(port, 'GET', `/api/agent-ask/${posted.json.id}`, null, H);
+  assert.equal(got.json.answer, 'Connected: Linear. Not connected: Jira.');
+  s.destroy(); app.server.close();
 });
 
 if (failures) { console.error(`\n${failures} failure(s)`); process.exit(1); }

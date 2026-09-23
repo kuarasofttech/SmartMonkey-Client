@@ -274,10 +274,10 @@ export function resolveProvider({ provider, key, env = process.env } = {}) {
  * The agent loop. `callModel(messages, tools)` returns {content:[blocks], stop_reason};
  * `runTool(name, input)` returns a string. Ends when the model stops calling tools.
  */
-export async function runAgent({ prompt, callModel, runTool, onText = () => {}, maxTurns = 80 }) {
+export async function runAgent({ prompt, callModel, runTool, tools = TOOLS, onText = () => {}, maxTurns = 80 }) {
   const messages = [{ role: 'user', content: prompt }];
   for (let turn = 0; turn < maxTurns; turn++) {
-    const resp = await callModel(messages, TOOLS);
+    const resp = await callModel(messages, tools);
     const content = resp.content || [];
     messages.push({ role: 'assistant', content });
     for (const b of content) if (b.type === 'text' && b.text) onText(b.text);

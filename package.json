@@ -29,10 +29,11 @@
     "interview.mjs",
     "ask-mcp.mjs",
     "buildstore.mjs",
+    "connectors",
     "assets"
   ],
   "scripts": {
-    "test": "node test/embed.mjs && node test/secrets.mjs && node test/webask.mjs && node test/connections.mjs && node test/interview.mjs && node test/headless.mjs && node test/ask-mcp.mjs && node test/terminal.mjs && node test/buildstore.mjs && node test/server.mjs && node test/lock.mjs && node test/serve-port.mjs && node test/app-singleton.mjs",
+    "test": "node test/embed.mjs && node test/secrets.mjs && node test/webask.mjs && node test/connections.mjs && node test/interview.mjs && node test/headless.mjs && node test/ask-mcp.mjs && node test/connectors.mjs && node test/terminal.mjs && node test/buildstore.mjs && node test/server.mjs && node test/lock.mjs && node test/serve-port.mjs && node test/app-singleton.mjs",
     "prepublishOnly": "npm test"
   },
   "engines": {

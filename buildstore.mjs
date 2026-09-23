@@ -91,6 +91,12 @@ export function makeBuildStore(kit, { now = () => new Date(), rand = () => rando
       return id;
     },
 
+    /** Audit one connector call into the build's meta — the Sources view reads this, not the model's claims. */
+    recordCall(id, entry) {
+      const m = id ? readJson(join(root, id, 'meta.json')) : null; if (!m) return;
+      (m.connectorCalls = m.connectorCalls || []).push(entry); saveMeta(m);
+    },
+
     appendEvent(id, ev) {
       try { appendFileSync(join(root, id, 'events.jsonl'), JSON.stringify(ev) + '\n'); } catch {}
     },
