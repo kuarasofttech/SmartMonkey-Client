@@ -679,5 +679,70 @@ await check('connections: when the build asks for a set-up tool, the panel shows
   s.destroy(); app.server.close();
 });
 
+// ---- the blueprint home page needs: project name, per-project keys, full answers, connection outcome ----
+await check('connections are per project: a key set up in one project folder is not used by another', async () => {
+  const secrets = makeSecrets({ platform: 'win32' });
+  const a = createApp({ cwd: mkdtempSync(join(tmpdir(), 'sm-a-')), secrets, connectorFetch: linearFetch() });
+  const b = createApp({ cwd: mkdtempSync(join(tmpdir(), 'sm-b-')), secrets, connectorFetch: linearFetch() });
+  const pa = await a.listen(0), pb = await b.listen(0);
+  await req(pa, 'POST', '/api/connectors/linear', { fields: { apiKey: 'lin_good' } });
+  assert.equal((await req(pa, 'GET', '/api/connectors')).json.connectors[0].status, 'connected');
+  assert.equal((await req(pb, 'GET', '/api/connectors')).json.connectors[0].status, 'not_set_up', 'another project has its own connections');
+  a.server.close(); b.server.close();
+});
+
+await check('status names the project folder', async () => {
+  const cwd = join(mkdtempSync(join(tmpdir(), 'sm-')), 'FileTagger'); mkdirSync(cwd);
+  const app = createApp({ cwd, secrets: makeSecrets({ platform: 'win32' }) });
+  const port = await app.listen(0);
+  assert.equal((await req(port, 'GET', '/api/status')).json.project.name, 'FileTagger');
+  app.server.close();
+});
+
+await check('each answer is recorded with its question id, every option offered, and exactly what was picked', async () => {
+  const { app, run } = pendingCliApp();
+  const port = await app.listen(0);
+  const s = sse(port);
+  await req(port, 'POST', '/api/ai', { mode: 'cli', driver: 'claude' });
+  await req(port, 'POST', '/api/generate'); await waitFor(() => run.bridge);
+  const H = { 'x-smartmonkey-token': run.bridge.token };
+  await reqH(port, 'POST', '/api/agent-ask', { kind: 'ask', question: 'Which platforms?', options: ['Android', 'iOS', 'Web'], multi: true }, H);
+  await waitFor(() => s.has('ask'));
+  const ask = s.get('ask').data;
+  await req(port, 'POST', '/api/answer', { id: ask.id, answer: ['Android', 'Web'] });
+  await waitFor(() => s.has('answered'));
+  const a = s.get('answered').data;
+  assert.equal(a.id, ask.id);
+  assert.deepEqual(a.options, ['Android', 'iOS', 'Web']);
+  assert.equal(a.multi, true);
+  assert.deepEqual(a.picked, ['Android', 'Web']);
+  assert.equal(s.events.filter(e => e.type === 'answered').length, 1, 'recorded once');
+  const b = (await req(port, 'GET', '/api/builds')).json.builds[0];
+  assert.ok((await req(port, 'GET', `/api/builds/${b.id}`)).json.events.some(e => e.type === 'answered' && e.data.picked.length === 2), 'kept in the build');
+  s.destroy(); app.server.close();
+});
+
+await check('a blueprint remembers the outcome of its connect step', async () => {
+  const cwd = mkdtempSync(join(tmpdir(), 'sm-app-'));
+  const runs = [];
+  const runCli = o => { runs.push(o); return { launched: true, headless: true, cancel() {} }; };
+  const app = createApp({ cwd, secrets: makeSecrets({ platform: 'win32' }), connectorFetch: linearFetch(), detectDrivers: () => [{ id: 'claude', bin: 'claude', label: 'Claude Code' }], runCli, askPollMs: 150 });
+  const port = await app.listen(0);
+  const s = sse(port);
+  await req(port, 'POST', '/api/connectors/linear', { fields: { apiKey: 'lin_good' } });
+  await req(port, 'POST', '/api/ai', { mode: 'cli', driver: 'claude' });
+  await req(port, 'POST', '/api/generate'); await waitFor(() => runs.length === 1);
+  await reqH(port, 'POST', '/api/agent-ask', { kind: 'connections', services: ['Linear', 'Jira'] }, { 'x-smartmonkey-token': runs[0].askBridge.token });
+  await waitFor(() => s.has('connections'));
+  const c = s.get('connections').data;
+  await req(port, 'POST', '/api/connect', { id: c.id, service: 'Jira', action: 'skip' });
+  await req(port, 'POST', '/api/connections/start', { id: c.id });
+  const b = (await req(port, 'GET', '/api/builds')).json.builds[0];
+  const meta = (await req(port, 'GET', `/api/builds/${b.id}`)).json.meta;
+  assert.deepEqual(meta.connections.status, { Linear: 'connected', Jira: 'skipped' });
+  assert.equal(meta.connections.accounts.Linear, 'Alperen (Kuarasoft)');
+  s.destroy(); app.server.close();
+});
+
 if (failures) { console.error(`\n${failures} failure(s)`); process.exit(1); }
 console.log('\nserver: all passed');

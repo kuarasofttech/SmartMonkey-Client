@@ -5,10 +5,10 @@
  */
 import { createServer } from 'node:http';
 import { createReadStream, existsSync, statSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs';
-import { join, resolve, extname, dirname, sep } from 'node:path';
+import { join, resolve, extname, dirname, sep, basename } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawn } from 'node:child_process';
-import { randomBytes } from 'node:crypto';
+import { randomBytes, createHash } from 'node:crypto';
 import { makeWebAsk, answerAsk, makeWebConnections, setConnection, startConnections } from './webask.mjs';
 import { makePopTerminalRunCli } from './terminal.mjs';
 import { makeHeadlessRunCli } from './headless.mjs';
@@ -62,7 +62,9 @@ export function createApp({ cwd = process.cwd(), secrets = makeSecrets(), modelF
   const builds = makeBuildStore(KIT);
 
   // ---- connections: the app holds the keys (OS keychain) and makes the calls; the agent never sees a key ----
-  const credKey = c => `connector:${c.id}`;
+  // Keys are PER PROJECT: one app's Linear workspace is never used for another project.
+  const projectKey = createHash('sha256').update(resolve(cwd)).digest('hex').slice(0, 12);
+  const credKey = c => `connector:${c.id}:${projectKey}`;
   const loadCreds = c => { try { const raw = c && secrets.get(credKey(c)); return raw ? JSON.parse(raw) : null; } catch { return null; } };
   const accountFor = name => { const c = findConnector(name); const cr = loadCreds(c); return cr ? (cr._account || 'connected') : null; };
   const connectionOpts = { isConnectable: name => !!findConnector(name), accountFor };
@@ -157,6 +159,7 @@ export function createApp({ cwd = process.cwd(), secrets = makeSecrets(), modelF
     if (path === '/api/status' && method === 'GET') {
       return sendJson(res, {
         app: APP_ID,   // lets a second `smartmonkey app` confirm this is us before replacing it
+        project: { name: basename(resolve(cwd)) },
         mode: session.mode,
         driver: session.driver,
         ai: { provider: session.ai.provider, model: session.ai.model, ready: ready() },
@@ -286,7 +289,7 @@ export function createApp({ cwd = process.cwd(), secrets = makeSecrets(), modelF
       session.running = true; session.status = 'running'; session.error = null; session.events = [];
       session.pendingAsk = null; session.pendingConnections = null;
       const pageAsk = makeWebAsk(session, emit);
-      session.webask = async (q, o, m) => { const a = await pageAsk(q, o, m); recordOwnerAnswer(q, a); emit('answered', { question: q, answer: a }); return a; };
+      session.webask = async (q, o, m) => { const a = await pageAsk(q, o, m); recordOwnerAnswer(q, a); return a; };
       agentAsks.clear();
       // Every build is kept: a clean start sets the current blueprint aside; "build on" places an older one.
       builds.prepareStart({ basedOn });
@@ -318,6 +321,11 @@ export function createApp({ cwd = process.cwd(), secrets = makeSecrets(), modelF
 
     if (path === '/api/answer' && method === 'POST') {
       const body = await readBody(req);
+      const pa = session.pendingAsk;
+      if (pa && pa.id === body.id) {
+        const picked = [].concat(body.answer ?? []).map(String).filter(Boolean);
+        emit('answered', { id: pa.id, question: pa.question, options: pa.options || [], multi: !!pa.multi, picked, answer: picked.join(', ') });
+      }
       return answerAsk(session, body.id, body.answer) ? sendJson(res, { ok: true }) : sendJson(res, { error: 'no matching pending question' }, 409);
     }
 
@@ -330,7 +338,11 @@ export function createApp({ cwd = process.cwd(), secrets = makeSecrets(), modelF
 
     if (path === '/api/connections/start' && method === 'POST') {
       const body = await readBody(req);   // { id }
-      if (startConnections(session, body.id)) return sendJson(res, { ok: true });
+      const outcome = session.pendingConnections;
+      if (startConnections(session, body.id)) {
+        builds.recordConnections(session.buildId, { services: outcome.services, status: outcome.status, accounts: outcome.accounts || {} });
+        return sendJson(res, { ok: true });
+      }
       const pc = session.pendingConnections;
       const pending = pc && pc.id === body.id ? Object.keys(pc.status).filter(k => pc.status[k] === 'pending') : null;
       return sendJson(res, { error: pending && pending.length ? 'connect or skip every tool first' : 'no matching pending connection', pending }, 409);

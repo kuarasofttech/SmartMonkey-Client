@@ -97,6 +97,12 @@ export function makeBuildStore(kit, { now = () => new Date(), rand = () => rando
       (m.connectorCalls = m.connectorCalls || []).push(entry); saveMeta(m);
     },
 
+    /** Which tools this build asked for and how each ended up (connected / skipped). */
+    recordConnections(id, outcome) {
+      const m = id ? readJson(join(root, id, 'meta.json')) : null; if (!m) return;
+      m.connections = outcome; saveMeta(m);
+    },
+
     appendEvent(id, ev) {
       try { appendFileSync(join(root, id, 'events.jsonl'), JSON.stringify(ev) + '\n'); } catch {}
     },

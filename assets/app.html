@@ -97,7 +97,6 @@
   .ask .other-pill { font:inherit; font-size:14px; font-weight:600; color:var(--slate); border-style:dashed; }
   .ask .other-pill:hover { color:var(--brand); filter:none; }
   .ask .ask-actions { display:flex; gap:8px; margin-top:12px; }
-  #doneMsg { margin:14px 0 0; }
   a.review { display:inline-block; padding:10px 16px; border-radius:8px; background:var(--brand); color:var(--on-brand); font-weight:600; }
   a.review:hover { text-decoration:none; filter:brightness(1.05); }
   .last { font-size:14px; color:var(--slate); margin:0 0 12px; }
@@ -127,18 +126,53 @@
   .connector-err { color:var(--bad); font-size:13px; margin-top:6px; }
   .conn-setup { display:flex; gap:8px; align-items:center; }
   .conn-setup input { width:220px; padding:6px 10px; font-size:13px; }
+  header.top { display:flex; align-items:flex-start; justify-content:space-between; gap:12px; }
+  .project { margin:4px 0 0; font-size:15px; color:var(--slate); }
+  .project b { color:var(--ink); }
+  .bpbar { display:flex; flex-wrap:wrap; align-items:flex-end; gap:12px; margin:0 0 16px; }
+  .bp-pick { flex:1; min-width:240px; }
+  .bp-pick label { margin-top:0; }
+  .bp-acts { display:flex; gap:8px; flex-wrap:wrap; }
+  .bp-meta { flex-basis:100%; margin:0; font-size:14px; color:var(--slate); }
+  .bp-meta b { color:var(--ink); }
+  details.sec > summary { cursor:pointer; font-weight:700; font-size:16px; color:var(--ink); list-style:none; }
+  details.sec > summary::-webkit-details-marker { display:none; }
+  details.sec > summary::before { content:''; display:inline-block; width:7px; height:7px; margin:0 12px 2px 2px; border-right:2px solid var(--brand); border-bottom:2px solid var(--brand); transform:rotate(-45deg); transition:transform .15s; }
+  details.sec[open] > summary::before { transform:rotate(45deg); }
+  details.sec[open] > summary { margin-bottom:10px; }
+  .logbox { background:var(--raised); border:1px solid var(--line); border-radius:8px; padding:14px; max-height:320px; overflow:auto; white-space:pre-wrap; font:13px/1.6 var(--mono); color:var(--ink); }
+  #log:empty { display:none; }
+  .qa { padding:12px 0; border-top:1px solid var(--line-2); }
+  .qa:first-child { border-top:0; padding-top:0; }
+  .qa-q { font-weight:600; color:var(--ink); margin:0 0 6px; }
+  .qa-opts { display:flex; flex-wrap:wrap; gap:6px; }
+  .qa-opt { font-size:13px; padding:4px 10px; border-radius:6px; border:1px solid var(--line); color:var(--slate); }
+  .qa-opt.on { border-color:var(--brand); background:var(--brand-soft); color:var(--brand); font-weight:600; }
+  .qa-note { font-size:13px; color:var(--slate); margin:6px 0 0; }
+  .bpconn { margin-top:14px; padding-top:12px; border-top:1px solid var(--line-2); font-size:14px; color:var(--slate); }
+  .bpconn b { color:var(--ink); }
+  .bpconn ul { margin:6px 0 0; padding-left:18px; }
+  #viewFrame { width:100%; border:0; min-height:200px; background:transparent; display:block; }
+  .confirm { display:flex; gap:8px; align-items:center; font-size:14px; color:var(--ink); }
+  .bp-acts.confirming > button { display:none; }
   .hide { display:none; }
   @media (prefers-reduced-motion: reduce) { * { transition:none !important; } }
 </style>
 </head>
 <body>
 <div class="wrap">
-  <h1 class="brand">SmartMonkey</h1>
-  <p class="sub">Blueprint your app for AI QA — locally, with your own AI.</p>
+  <header class="top">
+    <div>
+      <h1 class="brand">SmartMonkey</h1>
+      <p class="project" id="projectName"></p>
+    </div>
+    <button id="settingsBtn" class="ghost">Settings</button>
+  </header>
   <div class="privacy"><span class="dot"></span><span><b>Stays on this machine.</b> Only the blueprint you approve is ever shared.</span></div>
 
-  <div class="card">
-    <div class="step"><span class="n">1</span><h2>Your AI</h2></div>
+  <div class="card hide" id="settings">
+    <h2 class="plain">Your AI</h2>
+    <p class="sub">Only needed to build a blueprint.</p>
     <div class="modeToggle">
       <label><input type="radio" name="aiMode" id="modePlatform" value="embedded" checked /> Platform (API key)</label>
       <label><input type="radio" name="aiMode" id="modeCli" value="cli" /> Logged-in CLI</label>
@@ -176,29 +210,51 @@
     <div class="status" id="aiStatus"></div>
   </div>
 
-  <div class="card" id="connCard">
-    <h2 class="plain">Connections</h2>
-    <p class="sub">Let the build read your project's tools, such as your issues and specs. SmartMonkey only ever reads; your keys stay in your OS keychain and are never shown to the AI.</p>
+  <div class="bpbar" id="bpbar">
+    <div class="bp-pick hide" id="bpPick">
+      <label for="bpSelect">Blueprint</label>
+      <select id="bpSelect"></select>
+    </div>
+    <div class="bp-acts" id="bpActs">
+      <button id="gen">New build</button>
+      <button id="buildOn" class="ghost hide">Build on this</button>
+      <button id="makeCurrent" class="ghost hide">Make current</button>
+      <button id="deleteBp" class="ghost hide">Delete</button>
+      <button id="stop" class="ghost hide">Stop</button>
+    </div>
+    <p class="bp-meta" id="bpMeta"></p>
+  </div>
+
+  <section class="card hide" id="buildPanel">
+    <h2 class="plain" id="buildTitle">Building</h2>
+    <p class="sub">SmartMonkey reads your repo, then asks you a few questions here. Just click an answer.</p>
+    <div id="asks"></div>
+    <div id="log" class="logbox"></div>
+  </section>
+
+  <section class="card hide" id="empty">
+    <h2 class="plain">No blueprint yet</h2>
+    <p class="sub">Press <b>New build</b>. SmartMonkey reads this repo, asks you a few questions here (you just click an answer), and writes <code>smartmonkey/blueprint.json</code>.</p>
+  </section>
+
+  <details class="card sec hide" id="secAnswers" open><summary>Answers</summary><div id="answers"></div></details>
+
+  <details class="card sec" id="secConns" open>
+    <summary>Connections</summary>
+    <p class="sub">What the build can read for this project. SmartMonkey only ever reads; keys stay in your OS keychain, per project, and are never shown to the AI.</p>
     <div id="connectors"><p class="status">Loading…</p></div>
     <p class="status" id="comingLater"></p>
-  </div>
+    <div id="bpConns"></div>
+  </details>
 
-  <div class="card">
-    <div class="step"><span class="n">2</span><h2>Build the blueprint</h2></div>
-    <p class="sub">Reads your repo, then asks you a few questions about it right here, where you just click an answer, and writes <code>smartmonkey/blueprint.json</code>.</p>
-    <p id="lastBuild" class="last hide"></p>
-    <div class="actions"><button id="gen" disabled>Build blueprint</button><button id="stop" class="ghost hide">Stop</button></div>
-    <div id="asks"></div>
-    <label style="margin-top:14px">Progress</label>
-    <div id="log"></div>
-    <p id="doneMsg" class="hide"><a id="reviewLink" class="review" href="/view.html" target="_blank">Review and edit the blueprint</a></p>
-  </div>
+  <details class="card sec hide" id="secBlueprint" open>
+    <summary>Blueprint</summary>
+    <p class="sub"><a id="fullView" href="#" target="_blank">Open in its own tab</a></p>
+    <iframe id="viewFrame" title="Blueprint" scrolling="no"></iframe>
+    <p class="status hide" id="noBp"></p>
+  </details>
 
-  <div class="card hide" id="historyCard">
-    <h2 class="plain">Builds</h2>
-    <p class="sub">Every build is kept. The current one is what <code>smartmonkey/blueprint.json</code> holds.</p>
-    <div id="history"></div>
-  </div>
+  <details class="card sec hide" id="secLog"><summary>Build log</summary><div id="histLog" class="logbox"></div></details>
 </div>
 
 <script>
@@ -232,6 +288,7 @@ async function populateDrivers(selectId) {
 }
 
 let driversLoaded = false;
+let AI_READY = false, RUNNING = false;
 async function refresh() {
   const s = await api('GET', '/api/status');
   $('kc').textContent = s.keychain.available ? '· saved in OS keychain' : '· keychain unavailable, kept for this session only';
@@ -245,10 +302,14 @@ async function refresh() {
   } else {
     $('aiStatus').textContent = s.ai.ready ? `Ready: ${s.ai.provider} · ${s.ai.model}` : 'Set a provider + key to enable Build.';
   }
+  AI_READY = !!s.ai.ready;
+  if (s.project) { $('projectName').innerHTML = ''; $('projectName').appendChild(document.createTextNode('Project: ')); $('projectName').appendChild(el('b', null, s.project.name)); document.title = `SmartMonkey · ${s.project.name}`; }
   const running = s.run.status === 'running';
-  $('gen').disabled = !s.ai.ready || running;
+  RUNNING = running;
+  $('gen').disabled = running;
   $('stop').classList.toggle('hide', !running); $('stop').disabled = false;
-  if (s.blueprint.exists) $('doneMsg').classList.remove('hide');
+  if (running) $('buildPanel').classList.remove('hide');
+  syncActions();
   if (s.pendingAsk) renderAsk(s.pendingAsk);
   if (s.pendingConnections) renderConnections(s.pendingConnections);
 }
@@ -287,13 +348,22 @@ $('modeCli').onchange = async () => {
 const el = (tag, cls, text) => { const n = document.createElement(tag); if (cls) n.className = cls; if (text != null) n.textContent = text; return n; };
 
 $('stop').onclick = async () => { $('stop').disabled = true; await api('POST', '/api/stop'); refresh(); };
+$('settingsBtn').onclick = () => $('settings').classList.toggle('hide');
 
 async function startBuild(opts = {}) {
-  $('log').textContent = ''; $('asks').innerHTML = ''; $('doneMsg').classList.add('hide');
+  if (!AI_READY) {   // building needs an AI; open the settings right where the user is
+    $('settings').classList.remove('hide');
+    $('aiStatus').textContent = 'Set up your AI first, then press New build again.';
+    $('settings').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    return;
+  }
+  $('log').textContent = ''; $('asks').innerHTML = '';
+  $('buildPanel').classList.remove('hide'); $('buildTitle').textContent = opts.basedOn ? 'Building on the selected blueprint' : 'Building a new blueprint';
+  $('empty').classList.add('hide');
+  $('buildPanel').scrollIntoView({ behavior: 'smooth', block: 'start' });
   const r = await api('POST', '/api/generate', opts);
   if (r && r.error) logLine('✗ ' + r.error);
   refresh();
-  loadHistory();
 }
 $('gen').onclick = () => startBuild();
 
@@ -416,7 +486,8 @@ async function setConn(id, service, action) {
 
 // One renderer for live events and for replaying a saved build. Replays only log:
 // questions and the connect panel are interactive only while a build is running.
-function showEvent(type, d, live) {
+function showEvent(type, d, live, write = logLine) {
+  const logLine = write;
   if (type === 'text') logLine(d);
   else if (type === 'tool') logLine(`· ${d.name} ${d.summary || ''}`);
   else if (type === 'answered') logLine(`· you answered: ${d.answer || '(skipped)'}`);
@@ -430,11 +501,15 @@ let liveEvents = 0;
 const es = new EventSource('/api/events');
 for (const t of ['text', 'tool', 'answered', 'ask', 'connections', 'done', 'stopped', 'error']) {
   es.addEventListener(t, e => {
-    if (!liveEvents++) $('log').textContent = '';   // live events replace a replayed old build
+    liveEvents++;
+    $('buildPanel').classList.remove('hide');
     let d; try { d = JSON.parse(e.data); } catch { d = e.data; }
     showEvent(t, d, true);
     if (t === 'stopped') { $('asks').innerHTML = ''; flagQuestion(); }
-    if (t === 'done' || t === 'stopped' || t === 'error') { refresh(); loadHistory(); }
+    if (t === 'done' || t === 'stopped' || t === 'error') {
+      $('buildTitle').textContent = t === 'done' ? 'Build finished' : t === 'stopped' ? 'Build stopped' : 'Build failed';
+      refresh(); loadBlueprints();   // a finished build becomes the blueprint shown below
+    }
   });
 }
 
@@ -482,7 +557,7 @@ function connectorRow(c) {
   return row;
 }
 
-// ---- build history ----
+// ---- the blueprint home: the page opens ON the latest blueprint ----
 const fmtWhen = iso => {
   if (!iso) return '';
   const d = new Date(iso), today = new Date();
@@ -492,74 +567,120 @@ const fmtWhen = iso => {
 const STATUS = { done: 'Done', error: 'Failed', stopped: 'Stopped', interrupted: 'Interrupted', running: 'Running' };
 const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
 const countsText = c => c ? `${plural(c.screens, 'screen', 'screens')}, ${plural(c.flows, 'flow', 'flows')}, ${plural(c.openQuestions, 'open question', 'open questions')}` : '';
-const viewUrl = id => `/view.html?src=builds/${encodeURIComponent(id)}/blueprint.json`;
-let BUILDS = [];
+const viewUrl = (id, embed) => `/view.html?${embed ? 'embed=1&' : ''}src=builds/${encodeURIComponent(id)}/blueprint.json`;
+let BUILDS = [], SELECTED = null;
 
-async function loadHistory() {
+async function loadBlueprints(selectId) {
   const r = await api('GET', '/api/builds');
   BUILDS = (r && r.builds) || [];
-  $('historyCard').classList.toggle('hide', !BUILDS.length);
-  $('gen').textContent = BUILDS.length ? 'New build' : 'Build blueprint';
-  const latest = BUILDS[0];
-  if (latest) {
-    const lb = $('lastBuild'); lb.classList.remove('hide'); lb.innerHTML = '';
-    lb.appendChild(el('b', null, 'Last build: ')); lb.appendChild(document.createTextNode(`${fmtWhen(latest.finishedAt || latest.startedAt)}, ${(STATUS[latest.status] || latest.status).toLowerCase()}${latest.counts ? ', ' + countsText(latest.counts) : ''}.`));
-    const cur = BUILDS.find(b => b.current);
-    if (cur) { $('reviewLink').href = viewUrl(cur.id); $('doneMsg').classList.remove('hide'); }
+  const sel = $('bpSelect'); sel.innerHTML = '';
+  for (const b of BUILDS) {
+    const o = el('option', null, `${fmtWhen(b.startedAt)}${b.current ? ' (current)' : ''}${b.status !== 'done' ? ` · ${STATUS[b.status] || b.status}` : ''}`);
+    o.value = b.id; sel.appendChild(o);
   }
-  renderHistory();
-  return latest;
+  const has = BUILDS.length > 0;
+  $('bpPick').classList.toggle('hide', !has);
+  $('empty').classList.toggle('hide', has || RUNNING || liveEvents > 0);
+  for (const id of ['secAnswers', 'secBlueprint', 'secLog']) $(id).classList.toggle('hide', !has);
+  if (!has) { SELECTED = null; syncActions(); $('bpMeta').textContent = ''; $('bpConns').innerHTML = ''; return; }
+  const pick = selectId && BUILDS.find(b => b.id === selectId) ? selectId : (BUILDS.find(b => b.current) || BUILDS[0]).id;
+  sel.value = pick;
+  await showBlueprint(pick);
+}
+$('bpSelect').onchange = () => showBlueprint($('bpSelect').value);
+
+function syncActions() {
+  const b = BUILDS.find(x => x.id === SELECTED);
+  const has = !!(b && b.counts);
+  $('buildOn').classList.toggle('hide', !has || RUNNING);
+  $('makeCurrent').classList.toggle('hide', !has || !b || b.current || RUNNING);
+  $('deleteBp').classList.toggle('hide', !b || b.status === 'running' || RUNNING);
 }
 
-function renderHistory() {
-  const box = $('history'); box.innerHTML = '';
-  const running = BUILDS.some(b => b.status === 'running');
-  for (const b of BUILDS) {
-    const row = el('div', 'build-row');
-    const main = el('div', 'b-main');
-    main.appendChild(el('span', 'b-when', fmtWhen(b.startedAt)));
-    main.appendChild(el('span', 'b-status ' + b.status, STATUS[b.status] || b.status));
-    if (b.current) main.appendChild(el('span', 'b-current', 'Current'));
-    const extra = b.imported ? 'Imported from before history was kept' : b.basedOn ? 'Built on an earlier build' : b.noBlueprint ? 'Finished without writing a blueprint' : '';
-    main.appendChild(el('div', 'b-counts', [countsText(b.counts), extra].filter(Boolean).join('. ')));
-    row.appendChild(main);
-    const acts = el('div', 'b-acts');
-    const has = !!b.counts;
-    if (has) { const o = el('button', 'ghost', 'Open'); o.onclick = () => window.open(viewUrl(b.id), '_blank'); acts.appendChild(o); }
-    if (has && !running) { const on = el('button', 'ghost', 'Build on this'); on.onclick = () => startBuild({ basedOn: b.id }); acts.appendChild(on); }
-    if (has && !b.current && !running) { const mc = el('button', 'ghost', 'Make current'); mc.onclick = async () => { await api('POST', `/api/builds/${encodeURIComponent(b.id)}/current`); loadHistory(); }; acts.appendChild(mc); }
-    if (b.status !== 'running') {
-      const del = el('button', 'ghost', 'Delete');
-      del.onclick = () => {   // confirm inline — no browser dialog
-        acts.innerHTML = ''; acts.appendChild(el('span', 'b-counts', b.current ? 'Delete the current build?' : 'Delete this build?'));
-        const yes = el('button', null, 'Delete'); yes.onclick = async () => { await api('DELETE', `/api/builds/${encodeURIComponent(b.id)}`); loadHistory(); };
-        const no = el('button', 'ghost', 'Keep'); no.onclick = renderHistory;
-        acts.appendChild(yes); acts.appendChild(no);
-      };
-      acts.appendChild(del);
-    }
-    row.appendChild(acts);
+async function showBlueprint(id) {
+  SELECTED = id; syncActions();
+  const r = await api('GET', `/api/builds/${encodeURIComponent(id)}`);
+  if (!r || !r.meta) return;
+  const m = r.meta, events = r.events || [];
+  // summary line
+  const meta = $('bpMeta'); meta.innerHTML = '';
+  meta.appendChild(el('b', null, `${STATUS[m.status] || m.status}${m.current ? ', current' : ''}.`));
+  const bits = [m.counts ? countsText(m.counts) : 'No blueprint was written', m.imported ? 'Made before build history was kept' : '', m.basedOn ? 'Built on an earlier blueprint' : ''].filter(Boolean);
+  meta.appendChild(document.createTextNode(' ' + bits.join('. ') + '.'));
+  renderAnswers(events, m);
+  renderBlueprintConnections(m);
+  // the blueprint itself, embedded
+  const frame = $('viewFrame');
+  if (m.counts) { $('noBp').classList.add('hide'); frame.classList.remove('hide'); frame.src = viewUrl(id, true); $('fullView').href = viewUrl(id, false); $('fullView').parentElement.classList.remove('hide'); }
+  else { frame.classList.add('hide'); frame.removeAttribute('src'); $('fullView').parentElement.classList.add('hide'); $('noBp').textContent = 'This build did not write a blueprint.'; $('noBp').classList.remove('hide'); }
+  // its log
+  const box = $('histLog'); box.textContent = '';
+  const write = t => { box.textContent += t.endsWith('\n') ? t : t + '\n'; };
+  if (m.imported) write('This blueprint was made before SmartMonkey kept a build history, so there is no log for it.');
+  for (const ev of events) showEvent(ev.type, ev.data, false, write);
+}
+window.addEventListener('message', e => { if (e.data && e.data.smartmonkeyViewHeight) $('viewFrame').style.height = (e.data.smartmonkeyViewHeight + 8) + 'px'; });
+
+// Every question the build asked, with all its options and what was picked.
+function renderAnswers(events, m) {
+  const box = $('answers'); box.innerHTML = '';
+  const asks = {}; for (const ev of events) if (ev.type === 'ask') asks[ev.data.id] = ev.data;
+  const answered = events.filter(ev => ev.type === 'answered').map(ev => ev.data);
+  if (!answered.length) {
+    box.appendChild(el('p', 'status', m.imported ? 'This blueprint was made before SmartMonkey recorded answers.' : 'No questions were answered in this build.'));
+    return;
+  }
+  for (const a of answered) {
+    const q = asks[a.id] || {};
+    const options = a.options && a.options.length ? a.options : (q.options || []);
+    const picked = a.picked || String(a.answer || '').split(', ').filter(Boolean);   // older builds stored only the text
+    const row = el('div', 'qa');
+    row.appendChild(el('p', 'qa-q', a.question || q.question || ''));
+    const opts = el('div', 'qa-opts');
+    for (const o of options) opts.appendChild(el('span', 'qa-opt' + (picked.includes(o) ? ' on' : ''), `${picked.includes(o) ? (a.multi ? '☑ ' : '● ') : (a.multi ? '☐ ' : '○ ')}${o}`));
+    if (options.length) row.appendChild(opts);
+    const other = picked.filter(p => !options.includes(p));
+    if (!picked.length) row.appendChild(el('p', 'qa-note', 'Skipped.'));
+    else if (other.length) row.appendChild(el('p', 'qa-note', `Your own answer: ${other.join(', ')}`));
     box.appendChild(row);
   }
 }
 
-// On open, show the last build's log when nothing is running in this session.
-async function replayLatest() {
-  const s = await api('GET', '/api/status');
-  if (s.run.status === 'running' || liveEvents) return;
-  const latest = await loadHistory();
-  if (!latest || liveEvents) return;
-  const r = await api('GET', `/api/builds/${encodeURIComponent(latest.id)}`);
-  if (!r || !r.events || liveEvents) return;
-  $('log').textContent = '';
-  if (latest.imported) { logLine('This blueprint was made before SmartMonkey kept a build history, so there is no log for it.'); logLine('Review it below, or press New build.'); return; }
-  logLine(`— ${fmtWhen(latest.startedAt)} build —`);
-  for (const ev of r.events) showEvent(ev.type, ev.data, false);
+// What THIS blueprint asked for and read, under the project's connections.
+function renderBlueprintConnections(m) {
+  const box = $('bpConns'); box.innerHTML = '';
+  const c = m.connections, calls = m.connectorCalls || [];
+  if (!c && !calls.length) return;
+  const wrap = el('div', 'bpconn');
+  wrap.appendChild(el('b', null, 'In this blueprint'));
+  const ul = el('ul');
+  if (c) for (const svc of c.services) {
+    const st = c.status[svc];
+    ul.appendChild(el('li', null, `${svc}: ${st === 'connected' ? `connected${c.accounts && c.accounts[svc] ? ' as ' + c.accounts[svc] : ''}` : 'asked for, not connected'}`));
+  }
+  if (calls.length) {
+    const reads = calls.map(x => { try { const i = JSON.parse(x.input); return i.query ? `search "${i.query}"` : i.id ? `read ${i.id}` : x.tool.replace(/^linear_/, '').replace(/_/g, ' '); } catch { return x.tool; } });
+    ul.appendChild(el('li', null, `Read from Linear ${plural(calls.length, 'time', 'times')}: ${reads.slice(0, 8).join(', ')}${reads.length > 8 ? '…' : ''}`));
+  }
+  wrap.appendChild(ul); box.appendChild(wrap);
 }
 
-refresh();
+$('buildOn').onclick = () => startBuild({ basedOn: SELECTED });
+$('makeCurrent').onclick = async () => { await api('POST', `/api/builds/${encodeURIComponent(SELECTED)}/current`); loadBlueprints(SELECTED); };
+$('deleteBp').onclick = () => {   // confirm inline — no browser dialog
+  const acts = $('bpActs'); if (acts.classList.contains('confirming')) return;
+  const b = BUILDS.find(x => x.id === SELECTED);
+  const row = el('span', 'confirm', b && b.current ? 'Delete the current blueprint?' : 'Delete this blueprint?');
+  const yes = el('button', null, 'Delete'), no = el('button', 'ghost', 'Keep');
+  const done = () => { row.remove(); acts.classList.remove('confirming'); };
+  yes.onclick = async () => { done(); await api('DELETE', `/api/builds/${encodeURIComponent(SELECTED)}`); loadBlueprints(); };
+  no.onclick = done;
+  row.appendChild(yes); row.appendChild(no);
+  acts.classList.add('confirming'); acts.appendChild(row);
+};
+
+refresh().then(() => loadBlueprints());
 loadConnectors();
-replayLatest();
 </script>
 </body>
 </html>
