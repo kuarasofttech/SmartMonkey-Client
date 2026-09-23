@@ -30,15 +30,15 @@
   }
   * { box-sizing:border-box; }
   body { margin:0; background:var(--paper); color:var(--ink); font:16px/1.6 var(--sans); -webkit-font-smoothing:antialiased; }
-  .wrap { max-width:720px; margin:0 auto; padding:40px 20px 80px; }
-  .brand { font-family:var(--serif); font-weight:600; font-size:30px; letter-spacing:-.02em; margin:0; }
+  .brand { font-family:var(--serif); font-weight:600; font-size:24px; letter-spacing:-.02em; margin:0; }
   .sub { color:var(--slate); margin:6px 0 0; max-width:58ch; }
   .brand-row { display:flex; align-items:center; gap:14px; }
-  .brand-mark { flex:none; width:44px; height:44px; }
+  .brand-mark { flex:none; width:40px; height:40px; }
   .mascot { flex:none; object-fit:contain; filter:drop-shadow(0 3px 7px rgba(15,25,45,.38)); }
   .mascot-card { display:flex; align-items:center; gap:20px; }
   .mascot-card .mascot { width:120px; height:120px; }
   .build-head { display:flex; align-items:center; gap:14px; }
+  .build-head #buildClose { margin-left:auto; }
   .build-head .mascot { width:72px; height:72px; margin:-8px 0; }
   @media (max-width:480px) { .mascot-card { flex-direction:column; align-items:flex-start; } }
   .privacy { display:inline-flex; align-items:center; gap:9px; margin:18px 0 28px; padding:7px 13px; border:1px solid var(--line); border-radius:999px; background:var(--surface); font-size:13px; color:var(--slate); }
@@ -147,12 +147,8 @@
   .tile-form h3 { display:flex; align-items:center; gap:10px; margin:0 0 4px; font-size:15px; }
   .conn-setup { display:flex; gap:8px; align-items:center; }
   .conn-setup input { width:220px; padding:6px 10px; font-size:13px; }
-  header.top { display:flex; align-items:flex-start; justify-content:space-between; gap:12px; }
   .project { margin:4px 0 0; font-size:15px; color:var(--slate); }
   .project b { color:var(--ink); }
-  .bpbar { display:flex; flex-wrap:wrap; align-items:flex-end; gap:12px; margin:0 0 16px; }
-  .bp-pick { flex:1; min-width:240px; }
-  .bp-pick label { margin-top:0; }
   .bp-acts { display:flex; gap:8px; flex-wrap:wrap; }
   .bp-meta { flex-basis:100%; margin:0; font-size:14px; color:var(--slate); }
   .bp-meta b { color:var(--ink); }
@@ -183,12 +179,7 @@
   .bpconn { margin-top:14px; padding-top:12px; border-top:1px solid var(--line-2); font-size:14px; color:var(--slate); }
   .bpconn b { color:var(--ink); }
   .bpconn ul { margin:6px 0 0; padding-left:18px; }
-  .bp-full { border-top:1px solid var(--line); padding:28px 16px 48px; }
-  .bp-full-head { display:flex; align-items:baseline; justify-content:space-between; gap:16px; max-width:1200px; margin:0 auto 12px; }
-  .bp-full-head h2 { margin:0; font-size:20px; }
-  .bp-full-head a { font-size:14px; font-weight:600; }
-  .bp-full .status { max-width:1200px; margin:0 auto; }
-  #viewFrame { width:100%; max-width:1200px; margin:0 auto; border:0; min-height:400px; background:transparent; display:block; }
+  #viewFrame { width:100%; border:0; min-height:400px; background:transparent; display:block; }
   .confirm { display:flex; gap:8px; align-items:center; font-size:14px; color:var(--ink); }
   .bp-acts.confirming > button { display:none; }
   .hide { display:none !important; }   /* always wins — components set display, and an #id rule outranks a class */
@@ -203,118 +194,198 @@
   @keyframes pulse { 50% { opacity:.3; } }
   .ask .pill .was { display:block; font-size:11px; font-weight:500; color:var(--brand); }
   @media (prefers-reduced-motion: reduce) { * { transition:none !important; } .working .spin { animation-duration:2.4s; } }
+
+  /* ---- layout: sidebar + workspace; answers and blueprint side by side ---- */
+  .shell { display:grid; grid-template-columns:272px minmax(0,1fr); min-height:100vh; }
+  .side { position:sticky; top:0; height:100vh; overflow-y:auto; display:flex; flex-direction:column; gap:26px; padding:24px 18px 20px; border-right:1px solid var(--line); background:var(--surface); }
+  .side .project { margin:0; font-size:14px; }
+  .side-acts { display:flex; gap:8px; }
+  .side-acts button { flex:1; }
+  .side-h { margin:0 0 8px; font-size:13px; font-weight:700; color:var(--slate); letter-spacing:0; }
+  .side-sec .status { margin:0; }
+  .bp-list { list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:2px; }
+  .bp-item { display:grid; grid-template-columns:10px minmax(0,1fr); column-gap:10px; width:100%; margin:0; padding:8px 10px; border:1px solid transparent; border-radius:8px; background:none; color:var(--ink); font:inherit; text-align:left; cursor:pointer; box-shadow:none; }
+  .bp-item:hover { background:var(--raised); filter:none; }
+  .bp-item[aria-current="true"] { background:var(--raised); border-color:var(--brand); }
+  .bp-dot { width:8px; height:8px; margin-top:7px; border-radius:50%; background:var(--ok); }
+  .bp-dot.s-error { background:var(--bad); }
+  .bp-dot.s-stopped, .bp-dot.s-interrupted { background:transparent; box-shadow:inset 0 0 0 2px var(--faint); }
+  .bp-dot.s-running { background:var(--brand); box-shadow:0 0 0 3px var(--brand-soft); }
+  .bp-when { font-size:14px; font-weight:600; }
+  .bp-when .cur { margin-left:6px; padding:0 6px; border-radius:4px; background:var(--brand-soft); color:var(--brand); font-size:11px; font-weight:700; vertical-align:1px; }
+  .bp-sub { grid-column:2; font-size:12px; line-height:1.4; color:var(--slate); }
+  .side-conns { list-style:none; margin:0 0 6px; padding:0; display:flex; flex-direction:column; gap:6px; font-size:14px; }
+  .side-conns li { display:flex; align-items:center; gap:8px; min-width:0; }
+  .side-conns .tool-icon { width:24px; height:24px; }
+  .side-conns .tool-icon svg { width:14px; height:14px; }
+  .side-conns .who { margin-left:auto; color:var(--ok); font-size:12px; font-weight:600; }
+  .side .linkish { margin:0; }
+  .side-foot { margin-top:auto; display:flex; flex-direction:column; gap:12px; align-items:stretch; }
+  .side-foot .privacy { display:flex; align-items:flex-start; margin:0; border-radius:10px; font-size:12px; line-height:1.45; }
+  .side-foot .privacy .dot { margin-top:4px; }
+
+  .ws { min-width:0; height:100vh; display:flex; flex-direction:column; gap:16px; padding:22px 26px 0; overflow:hidden; }
+  .ws > .card { margin:0; flex:none; }
+  .ws > .panel, .ws > #buildPanel { max-height:55vh; overflow-y:auto; }
+  .panel-head { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:4px; }
+  .ws-head { display:flex; align-items:center; justify-content:space-between; gap:16px; flex-wrap:wrap; flex:none; }
+  .ws-title { min-width:0; }
+  .ws-title h2 { margin:0; font-family:var(--serif); font-size:26px; font-weight:600; letter-spacing:-.02em; line-height:1.2; }
+  .ws-head .bp-meta { flex-basis:auto; margin:2px 0 0; }
+  .cols { flex:1; min-height:0; display:grid; grid-template-columns:minmax(340px,5fr) minmax(0,7fr); gap:20px; }
+  .col { min-height:0; overflow-y:auto; display:flex; flex-direction:column; gap:16px; scrollbar-gutter:stable; }
+  .col::after { content:''; flex:none; height:12px; }   /* breathing room at the end, without lifting the sticky Rebuild bar off the bottom edge */
+  .col > .card { margin:0; }
+  .col-h { margin:0 0 12px; font-size:16px; font-weight:700; letter-spacing:-.01em; }
+  .col-answers .qa-q { font-size:14px; }
+  .bp-pane-head { display:flex; align-items:baseline; justify-content:space-between; gap:12px; }
+  .bp-pane-head a { font-size:13px; font-weight:600; }
+
+  @media (max-width:1000px) {
+    .shell { grid-template-columns:1fr; }
+    .side { position:static; height:auto; border-right:0; border-bottom:1px solid var(--line); gap:18px; padding:18px 16px; }
+    .side-foot { margin-top:0; }
+    .ws { height:auto; overflow:visible; padding:18px 16px 40px; }
+    .ws > .panel, .ws > #buildPanel { max-height:none; }
+    .cols { grid-template-columns:1fr; }
+    .col { overflow:visible; }
+  }
 </style>
 </head>
 <body>
-<div class="wrap">
-  <header class="top">
+<div class="shell">
+  <!-- Sidebar: who/what, the one primary action, the blueprints of this project, what's connected. -->
+  <aside class="side">
     <div class="brand-row">
-      <img class="brand-mark" src="/mascot/head.svg" alt="" width="44" height="44">
+      <img class="brand-mark" src="/mascot/head.svg" alt="" width="40" height="40">
       <div>
         <h1 class="brand">SmartMonkey</h1>
         <p class="project" id="projectName"></p>
       </div>
     </div>
-    <button id="settingsBtn" class="ghost">Settings</button>
-  </header>
-  <div class="privacy"><span class="dot"></span><span><b>Stays on this machine.</b> Only the blueprint you approve is ever shared.</span></div>
-
-  <div class="card hide" id="settings">
-    <h2 class="plain">Your AI</h2>
-    <p class="sub">Only needed to build a blueprint.</p>
-    <div class="modeToggle">
-      <label><input type="radio" name="aiMode" id="modePlatform" value="embedded" checked /> Platform (API key)</label>
-      <label><input type="radio" name="aiMode" id="modeCli" value="cli" /> Logged-in CLI</label>
-    </div>
-
-    <div id="platformMode">
-      <div class="row">
-        <div>
-          <label>Provider</label>
-          <select id="provider">
-            <option value="anthropic">Anthropic</option>
-            <option value="openai">OpenAI</option>
-            <option value="gemini">Gemini</option>
-          </select>
-        </div>
-        <div>
-          <label>Model</label>
-          <input id="model" placeholder="(default)" />
-        </div>
-      </div>
-      <label>API key <span id="kc" class="status"></span></label>
-      <div class="row">
-        <div><input id="key" type="password" placeholder="sk-… (stored in your OS keychain)" /></div>
-        <button id="saveKey">Save</button>
-      </div>
-    </div>
-
-    <div id="cliMode" class="hide">
-      <label>Logged-in CLI</label>
-      <select id="driver"></select>
-      <p class="status" id="driverNote"></p>
-      <p class="status">Your CLI builds the blueprint in the background. Its questions and progress appear on this page.</p>
-    </div>
-
-    <div class="status" id="aiStatus"></div>
-  </div>
-
-  <div class="bpbar" id="bpbar">
-    <div class="bp-pick hide" id="bpPick">
-      <label for="bpSelect">Blueprint</label>
-      <select id="bpSelect"></select>
-    </div>
-    <div class="bp-acts" id="bpActs">
+    <div class="side-acts">
       <button id="gen">New build</button>
-      <button id="buildOn" class="ghost hide">Build on this</button>
-      <button id="makeCurrent" class="ghost hide">Make current</button>
-      <button id="deleteBp" class="ghost hide">Delete</button>
       <button id="stop" class="ghost hide">Stop</button>
     </div>
-    <p class="bp-meta" id="bpMeta"></p>
-  </div>
 
-  <section class="card hide" id="buildPanel">
-    <div class="build-head"><img class="mascot hide" id="buildMascot" alt="" width="72" height="72"><h2 class="plain" id="buildTitle">Building</h2></div>
-    <p class="sub" id="buildSub">SmartMonkey reads your repo, then asks you a few questions here. Just click an answer.</p>
-    <div class="working hide" id="working" role="status" aria-live="polite"><span class="spin" aria-hidden="true"></span><span class="w-text" id="wText">Working…</span><span class="w-time" id="wTime"></span></div>
-    <div id="asks"></div>
-    <div id="log" class="logbox"></div>
-  </section>
+    <nav class="side-sec" aria-label="Blueprints">
+      <h2 class="side-h">Blueprints</h2>
+      <ul class="bp-list" id="bpList"></ul>
+      <p class="status hide" id="bpNone">None yet.</p>
+    </nav>
 
-  <section class="card hide mascot-card" id="empty">
-    <img class="mascot" src="/mascot/front.png" alt="" width="120" height="120">
-    <div>
-      <h2 class="plain">No blueprint yet</h2>
-      <p class="sub">Press <b>New build</b>. SmartMonkey reads this repo, asks you a few questions here (you just click an answer), and writes <code>smartmonkey/blueprint.json</code>.</p>
+    <div class="side-sec">
+      <h2 class="side-h">Connections</h2>
+      <ul class="side-conns" id="sideConns"></ul>
+      <button class="linkish" id="connsBtn">Manage connections</button>
     </div>
-  </section>
 
-  <details class="card sec hide" id="secAnswers" open><summary>Answers</summary>
-    <div id="answers"></div>
-    <div class="rebuild-bar hide" id="rebuildBar">
-      <span class="status" id="rebuildNote"></span>
-      <button class="ghost hide" id="resetAnswers">Undo changes</button>
-      <button id="rebuild">Rebuild</button>
+    <div class="side-foot">
+      <button id="settingsBtn" class="ghost">Your AI</button>
+      <p class="privacy"><span class="dot"></span><span><b>Stays on this machine.</b> Only the blueprint you approve is shared.</span></p>
     </div>
-  </details>
+  </aside>
 
-  <details class="card sec" id="secConns" open>
-    <summary>Connections</summary>
-    <p class="sub">What the build can read for this project. SmartMonkey only ever reads; keys stay in your OS keychain, per project, and are never shown to the AI.</p>
-    <div id="connectors"><p class="status">Loading…</p></div>
-    <div id="bpConns"></div>
-  </details>
+  <main class="ws">
+    <div class="card hide panel" id="settings">
+      <h2 class="plain">Your AI</h2>
+      <p class="sub">Only needed to build a blueprint.</p>
+      <div class="modeToggle">
+        <label><input type="radio" name="aiMode" id="modePlatform" value="embedded" checked /> Platform (API key)</label>
+        <label><input type="radio" name="aiMode" id="modeCli" value="cli" /> Logged-in CLI</label>
+      </div>
 
-  <details class="card sec hide" id="secLog"><summary>Build log</summary><div id="histLog" class="logbox"></div></details>
+      <div id="platformMode">
+        <div class="row">
+          <div>
+            <label>Provider</label>
+            <select id="provider">
+              <option value="anthropic">Anthropic</option>
+              <option value="openai">OpenAI</option>
+              <option value="gemini">Gemini</option>
+            </select>
+          </div>
+          <div>
+            <label>Model</label>
+            <input id="model" placeholder="(default)" />
+          </div>
+        </div>
+        <label>API key <span id="kc" class="status"></span></label>
+        <div class="row">
+          <div><input id="key" type="password" placeholder="sk-… (stored in your OS keychain)" /></div>
+          <button id="saveKey">Save</button>
+        </div>
+      </div>
+
+      <div id="cliMode" class="hide">
+        <label>Logged-in CLI</label>
+        <select id="driver"></select>
+        <p class="status" id="driverNote"></p>
+        <p class="status">Your CLI builds the blueprint in the background. Its questions and progress appear on this page.</p>
+      </div>
+
+      <div class="status" id="aiStatus"></div>
+    </div>
+
+    <section class="card hide panel" id="secConns">
+      <div class="panel-head"><h2 class="plain">Connections</h2><button class="ghost" id="connsClose">Close</button></div>
+      <p class="sub">What the build can read for this project. SmartMonkey only ever reads; keys stay in your OS keychain, per project, and are never shown to the AI.</p>
+      <div id="connectors"><p class="status">Loading…</p></div>
+    </section>
+
+    <header class="ws-head hide" id="bpbar">
+      <div class="ws-title">
+        <h2 id="bpTitle"></h2>
+        <p class="bp-meta" id="bpMeta"></p>
+      </div>
+      <div class="bp-acts" id="bpActs">
+        <button id="buildOn" class="ghost hide">Build on this</button>
+        <button id="makeCurrent" class="ghost hide">Make current</button>
+        <button id="deleteBp" class="ghost hide">Delete</button>
+      </div>
+    </header>
+
+    <section class="card hide" id="buildPanel">
+      <div class="build-head"><img class="mascot hide" id="buildMascot" alt="" width="64" height="64"><h2 class="plain" id="buildTitle">Building</h2><button class="ghost hide" id="buildClose">Close</button></div>
+      <p class="sub" id="buildSub">SmartMonkey reads your repo, then asks you a few questions here. Just click an answer.</p>
+      <div class="working hide" id="working" role="status" aria-live="polite"><span class="spin" aria-hidden="true"></span><span class="w-text" id="wText">Working…</span><span class="w-time" id="wTime"></span></div>
+      <div id="asks"></div>
+      <div id="log" class="logbox"></div>
+    </section>
+
+    <section class="card hide mascot-card" id="empty">
+      <img class="mascot" src="/mascot/front.png" alt="" width="120" height="120">
+      <div>
+        <h2 class="plain">No blueprint yet</h2>
+        <p class="sub">Press <b>New build</b>. SmartMonkey reads this repo, asks you a few questions here (you just click an answer), and writes <code>smartmonkey/blueprint.json</code>.</p>
+      </div>
+    </section>
+
+    <!-- The two things a tester works between: their answers, and what those answers produced. -->
+    <div class="cols hide" id="cols">
+      <div class="col col-answers">
+        <section class="card" id="secAnswers">
+          <h2 class="col-h">Answers</h2>
+          <div id="answers"></div>
+          <div class="rebuild-bar hide" id="rebuildBar">
+            <span class="status" id="rebuildNote"></span>
+            <button class="ghost hide" id="resetAnswers">Undo changes</button>
+            <button id="rebuild">Rebuild</button>
+          </div>
+        </section>
+        <div id="bpConns"></div>
+        <details class="card sec" id="secLog"><summary>Build log</summary><div id="histLog" class="logbox"></div></details>
+      </div>
+      <div class="col col-blueprint">
+        <section class="bp-pane" id="secBlueprint">
+          <div class="bp-pane-head"><h2 class="col-h">Blueprint</h2><a id="fullView" href="#" target="_blank">Open in its own tab</a></div>
+          <iframe id="viewFrame" title="Blueprint" scrolling="no"></iframe>
+          <p class="status hide" id="noBp"></p>
+        </section>
+      </div>
+    </div>
+  </main>
 </div>
-
-<!-- The blueprint itself: the whole width of the window, as tall as it is, at the bottom. -->
-<section class="bp-full hide" id="secBlueprint">
-  <div class="bp-full-head"><h2 class="plain">Blueprint</h2><a id="fullView" href="#" target="_blank">Open in its own tab ↗</a></div>
-  <iframe id="viewFrame" title="Blueprint" scrolling="no"></iframe>
-  <p class="status hide" id="noBp"></p>
-</section>
 
 <script>
 const $ = id => document.getElementById(id);
@@ -409,7 +480,9 @@ $('modeCli').onchange = async () => {
 const el = (tag, cls, text) => { const n = document.createElement(tag); if (cls) n.className = cls; if (text != null) n.textContent = text; return n; };
 
 $('stop').onclick = async () => { $('stop').disabled = true; await api('POST', '/api/stop'); refresh(); };
-$('settingsBtn').onclick = () => $('settings').classList.toggle('hide');
+$('settingsBtn').onclick = () => { $('secConns').classList.add('hide'); $('settings').classList.toggle('hide'); };
+$('connsBtn').onclick = () => { $('settings').classList.add('hide'); $('secConns').classList.toggle('hide'); };
+$('connsClose').onclick = () => $('secConns').classList.add('hide');
 
 async function startBuild(opts = {}) {
   if (!AI_READY) {   // building needs an AI; open the settings right where the user is
@@ -418,7 +491,7 @@ async function startBuild(opts = {}) {
     $('settings').scrollIntoView({ behavior: 'smooth', block: 'start' });
     return;
   }
-  $('log').textContent = ''; $('asks').innerHTML = ''; $('buildMascot').classList.add('hide');
+  $('log').textContent = ''; $('asks').innerHTML = ''; $('buildMascot').classList.add('hide'); $('buildClose').classList.add('hide'); $('log').classList.remove('hide');
   $('buildSub').textContent = opts.reviewed ? 'SmartMonkey updates the blueprint for the answers you changed. It only asks if a change raises something new.' : 'SmartMonkey reads your repo, then asks you a few questions here. Just click an answer.';
   $('buildPanel').classList.remove('hide'); $('buildTitle').textContent = opts.reviewed ? 'Rebuilding with your answers' : opts.basedOn ? 'Building on the selected blueprint' : 'Building a new blueprint';
   $('empty').classList.add('hide');
@@ -426,9 +499,10 @@ async function startBuild(opts = {}) {
   $('buildPanel').scrollIntoView({ behavior: 'smooth', block: 'start' });
   const r = await api('POST', '/api/generate', opts);
   if (r && r.error) logLine('✗ ' + r.error);
-  refresh();
+  refresh(); loadBlueprints(SELECTED);   // the new build shows up in the list as "Building now"
 }
 $('gen').onclick = () => startBuild();
+$('buildClose').onclick = () => $('buildPanel').classList.add('hide');
 
 // A question from the build, mid-run. Answer by clicking: one click for a single
 // choice; tick and press Done for several. "Other…" opens a box only when needed.
@@ -600,13 +674,15 @@ for (const t of ['text', 'tool', 'answered', 'ask', 'connections', 'done', 'stop
     else if (t === 'answered') WORK.activity = 'carrying on with your answer';
     if (t === 'done' || t === 'stopped' || t === 'error') RUNNING = false;
     setWorking();
-    if (t === 'stopped') { $('asks').innerHTML = ''; flagQuestion(); }
+    if (t === 'answered' && d && d.id) { const a = document.getElementById('ask-' + d.id); if (a) a.remove(); flagQuestion(); }   // answered (maybe in another tab)
+    if (t === 'done' || t === 'stopped' || t === 'error') { $('asks').innerHTML = ''; flagQuestion(); }
     if (t === 'done' || t === 'stopped' || t === 'error') {
       $('buildTitle').textContent = t === 'done' ? 'Build finished' : t === 'stopped' ? 'Build stopped' : 'Build failed';
       // the monkey reacts: happy when it finished, sad when it failed
       const wrote = t === 'done' && !(d && d.blueprint === false);
       if (t === 'done' && !wrote) $('buildTitle').textContent = 'Build finished without a blueprint';
       $('buildSub').textContent = t === 'done' ? (wrote ? 'Your blueprint is ready — it opens below, with your answers.' : 'The build ended without writing a blueprint, so the one you had before is still current. The log below shows how far it got.') : t === 'stopped' ? 'You stopped this build. The blueprint you had before is still current.' : 'The blueprint you had before is still current. The log below says what went wrong.';
+      $('buildClose').classList.remove('hide'); $('log').classList.add('hide');   // the log stays under "Build log"
       if (t !== 'stopped') { $('buildMascot').src = `/mascot/${wrote ? 'happy' : 'sad'}.png`; $('buildMascot').classList.remove('hide'); }
       refresh(); loadBlueprints();   // a finished build becomes the blueprint shown below
     }
@@ -640,6 +716,9 @@ async function loadConnectors() {
   const box = $('connectors'); box.innerHTML = '';
   const all = (r && r.connectors) || [];
   const on = all.filter(c => c.status === 'connected'), off = all.filter(c => c.status !== 'connected');
+  const side = $('sideConns'); side.innerHTML = '';
+  for (const c of on) { const li = el('li'); li.appendChild(iconFor(c.label)); li.appendChild(el('span', null, c.label)); li.appendChild(el('span', 'who', '✓')); li.title = `Connected as ${c.account}`; side.appendChild(li); }
+  if (!on.length) side.appendChild(el('li', 'status', 'Nothing connected yet.'));
   if (on.length) { box.appendChild(el('p', 'conn-label', 'Connected')); for (const c of on) box.appendChild(connectorRow(c)); }
   else box.appendChild(el('p', 'status', 'Nothing connected yet for this project.'));
   // Every tool we know of, with its icon. A real connector opens its key form; the
@@ -716,21 +795,30 @@ let BUILDS = [], SELECTED = null;
 async function loadBlueprints(selectId) {
   const r = await api('GET', '/api/builds');
   BUILDS = (r && r.builds) || [];
-  const sel = $('bpSelect'); sel.innerHTML = '';
-  for (const b of BUILDS) {
-    const o = el('option', null, `${fmtWhen(b.startedAt)}${b.current ? ' (current)' : ''}${b.status !== 'done' ? ` · ${STATUS[b.status] || b.status}` : ''}`);
-    o.value = b.id; sel.appendChild(o);
-  }
   const has = BUILDS.length > 0;
-  $('bpPick').classList.toggle('hide', !has);
+  $('bpNone').classList.toggle('hide', has);
   $('empty').classList.toggle('hide', has || RUNNING || liveEvents > 0);
-  for (const id of ['secAnswers', 'secBlueprint', 'secLog']) $(id).classList.toggle('hide', !has);
-  if (!has) { SELECTED = null; syncActions(); $('bpMeta').textContent = ''; $('bpConns').innerHTML = ''; return; }
+  $('cols').classList.toggle('hide', !has); $('bpbar').classList.toggle('hide', !has);
+  if (!has) { SELECTED = null; $('bpList').innerHTML = ''; syncActions(); $('bpMeta').textContent = ''; $('bpConns').innerHTML = ''; return; }
   const pick = selectId && BUILDS.find(b => b.id === selectId) ? selectId : (BUILDS.find(b => b.current) || BUILDS[0]).id;
-  sel.value = pick;
   await showBlueprint(pick);
 }
-$('bpSelect').onchange = () => showBlueprint($('bpSelect').value);
+// The sidebar list: one entry per build, newest first — when, how it ended, what it found.
+function renderBpList() {
+  const ul = $('bpList'); ul.innerHTML = '';
+  for (const b of BUILDS) {
+    const li = el('li'), btn = el('button', 'bp-item'); btn.type = 'button';
+    btn.setAttribute('aria-current', b.id === SELECTED ? 'true' : 'false');
+    btn.appendChild(el('span', `bp-dot s-${b.status}`));
+    const when = el('span', 'bp-when', fmtWhen(b.startedAt));
+    if (b.current) when.appendChild(el('span', 'cur', 'current'));
+    btn.appendChild(when);
+    const c = b.counts;
+    btn.appendChild(el('span', 'bp-sub', b.status === 'running' ? 'Building now' : c ? `${plural(c.screens, 'screen', 'screens')} · ${plural(c.flows, 'flow', 'flows')}${b.status !== 'done' ? ` · ${STATUS[b.status]}` : ''}` : `${STATUS[b.status] || b.status} · no blueprint`));
+    btn.onclick = () => showBlueprint(b.id);
+    li.appendChild(btn); ul.appendChild(li);
+  }
+}
 
 function syncActions() {
   const b = BUILDS.find(x => x.id === SELECTED);
@@ -741,11 +829,12 @@ function syncActions() {
 }
 
 async function showBlueprint(id) {
-  SELECTED = id; syncActions();
+  SELECTED = id; syncActions(); renderBpList();
   const r = await api('GET', `/api/builds/${encodeURIComponent(id)}`);
   if (!r || !r.meta) return;
   const m = r.meta, events = r.events || [];
   // summary line
+  $('bpTitle').textContent = `${m.current ? 'Current blueprint' : 'Blueprint'} · ${fmtWhen(m.startedAt)}`;
   const meta = $('bpMeta'); meta.innerHTML = '';
   meta.appendChild(el('b', null, `${STATUS[m.status] || m.status}${m.current ? ', current' : ''}.`));
   const bits = [m.counts ? countsText(m.counts) : 'No blueprint was written', m.imported ? 'Made before build history was kept' : '', m.basedOn ? 'Built on an earlier blueprint' : ''].filter(Boolean);

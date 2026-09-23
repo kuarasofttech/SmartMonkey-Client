@@ -341,7 +341,9 @@ export function createApp({ cwd = process.cwd(), secrets = makeSecrets(), modelF
 
     if (path === '/api/events' && method === 'GET') {
       res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-cache', connection: 'keep-alive' });
-      for (const ev of session.events) writeSse(res, ev);
+      // A page (re)opening mid-build catches up on it. After the build ended there is nothing to
+      // catch up on — its log lives with the build — so an old run never replays as if it were live.
+      if (session.running) for (const ev of session.events) writeSse(res, ev);
       session.clients.add(res);
       req.on('close', () => session.clients.delete(res));
       return;
