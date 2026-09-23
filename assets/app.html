@@ -237,6 +237,7 @@
   .pane { padding:22px 0 28px; }
   #paneAnswers { max-width:860px; }
   .pane-intro { margin:0 0 18px; }
+  .build-acts { margin:0 0 18px; padding-bottom:18px; border-bottom:1px solid var(--line-2); }
   #paneLog .logbox { max-height:none; }
   #paneAnswers .rebuild-bar { background:var(--paper); margin:18px 0 0; padding:14px 0; }
   .btn-link { display:inline-flex; align-items:center; padding:9px 16px; border-radius:8px; background:var(--brand); color:var(--on-brand); font-weight:600; font-size:14px; text-decoration:none; }
@@ -360,11 +361,7 @@
         <h2 id="bpTitle"></h2>
         <p class="bp-meta" id="bpMeta"></p>
       </div>
-      <div class="bp-acts" id="bpActs">
-        <button id="genCases" class="hide">Generate test cases</button>
-        <button id="buildOn" class="ghost hide">Build on this</button>
-        <button id="makeCurrent" class="ghost hide">Make current</button>
-        <button id="deleteBp" class="ghost hide">Delete</button>
+      <div class="ws-head-acts">
         <a class="btn-link hide" id="downloadPkg" href="#" download>Download package</a>
       </div>
     </header>
@@ -401,6 +398,12 @@
         </div>
       </section>
       <section class="pane hide" id="paneAnswers" role="tabpanel" aria-labelledby="tabAnswers">
+        <div class="bp-acts build-acts" id="bpActs">
+          <button id="genCases" class="hide">Generate test cases</button>
+          <button id="buildOn" class="ghost hide">Build on this</button>
+          <button id="makeCurrent" class="ghost hide">Make current</button>
+          <button id="deleteBp" class="ghost hide">Delete</button>
+        </div>
         <p class="sub pane-intro">How this build was made: the questions it asked and what you picked. Change any of them and rebuild — SmartMonkey updates this blueprint for what changed.</p>
         <div id="secAnswers"><div id="answers"></div></div>
         <div id="bpConns"></div>
