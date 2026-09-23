@@ -124,6 +124,18 @@
   .connector-form .help { font-size:12px; color:var(--slate); margin:4px 0 0; }
   .connector-form .row { margin-top:8px; }
   .connector-err { color:var(--bad); font-size:13px; margin-top:6px; }
+  .tool-icon { flex:none; display:inline-grid; place-items:center; width:28px; height:28px; border-radius:7px; background:var(--raised); border:1px solid var(--line-2); color:var(--ink); font-weight:700; font-size:13px; }
+  .tool-icon svg { width:16px; height:16px; }
+  .conn-label { margin:18px 0 8px; font-size:12px; font-weight:700; letter-spacing:.06em; text-transform:uppercase; color:var(--slate); }
+  .tiles { display:grid; grid-template-columns:repeat(auto-fill, minmax(190px, 1fr)); gap:8px; }
+  .tile { display:flex; align-items:center; gap:10px; padding:10px 12px; border:1px solid var(--line); border-radius:8px; background:var(--raised); color:var(--ink); font:inherit; font-size:14px; font-weight:600; text-align:left; cursor:pointer; transition:border-color .15s, background .15s; min-width:0; }
+  .tile:hover:not(:disabled), .tile.open { border-color:var(--brand); }
+  .tile .tile-name { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .tile .tile-tag { flex:none; font-size:11px; font-weight:600; color:var(--brand); }
+  .tile:disabled { cursor:default; opacity:1; color:var(--ink); font-weight:500; border-style:dashed; background:transparent; }
+  .tile:disabled .tile-tag { color:var(--slate); font-weight:500; }
+  .tile-form { margin-top:10px; padding:14px; border:1px solid var(--brand); border-radius:8px; }
+  .tile-form h3 { display:flex; align-items:center; gap:10px; margin:0 0 4px; font-size:15px; }
   .conn-setup { display:flex; gap:8px; align-items:center; }
   .conn-setup input { width:220px; padding:6px 10px; font-size:13px; }
   header.top { display:flex; align-items:flex-start; justify-content:space-between; gap:12px; }
@@ -152,7 +164,12 @@
   .bpconn { margin-top:14px; padding-top:12px; border-top:1px solid var(--line-2); font-size:14px; color:var(--slate); }
   .bpconn b { color:var(--ink); }
   .bpconn ul { margin:6px 0 0; padding-left:18px; }
-  #viewFrame { width:100%; border:0; min-height:200px; background:transparent; display:block; }
+  .bp-full { border-top:1px solid var(--line); padding:28px 16px 48px; }
+  .bp-full-head { display:flex; align-items:baseline; justify-content:space-between; gap:16px; max-width:1200px; margin:0 auto 12px; }
+  .bp-full-head h2 { margin:0; font-size:20px; }
+  .bp-full-head a { font-size:14px; font-weight:600; }
+  .bp-full .status { max-width:1200px; margin:0 auto; }
+  #viewFrame { width:100%; max-width:1200px; margin:0 auto; border:0; min-height:400px; background:transparent; display:block; }
   .confirm { display:flex; gap:8px; align-items:center; font-size:14px; color:var(--ink); }
   .bp-acts.confirming > button { display:none; }
   .hide { display:none; }
@@ -254,19 +271,18 @@
     <summary>Connections</summary>
     <p class="sub">What the build can read for this project. SmartMonkey only ever reads; keys stay in your OS keychain, per project, and are never shown to the AI.</p>
     <div id="connectors"><p class="status">Loading…</p></div>
-    <p class="status" id="comingLater"></p>
     <div id="bpConns"></div>
-  </details>
-
-  <details class="card sec hide" id="secBlueprint" open>
-    <summary>Blueprint</summary>
-    <p class="sub"><a id="fullView" href="#" target="_blank">Open in its own tab</a></p>
-    <iframe id="viewFrame" title="Blueprint" scrolling="no"></iframe>
-    <p class="status hide" id="noBp"></p>
   </details>
 
   <details class="card sec hide" id="secLog"><summary>Build log</summary><div id="histLog" class="logbox"></div></details>
 </div>
+
+<!-- The blueprint itself: the whole width of the window, as tall as it is, at the bottom. -->
+<section class="bp-full hide" id="secBlueprint">
+  <div class="bp-full-head"><h2 class="plain">Blueprint</h2><a id="fullView" href="#" target="_blank">Open in its own tab ↗</a></div>
+  <iframe id="viewFrame" title="Blueprint" scrolling="no"></iframe>
+  <p class="status hide" id="noBp"></p>
+</section>
 
 <script>
 const $ = id => document.getElementById(id);
@@ -495,7 +511,7 @@ function updateConnections(c) {
     const real = !!(c.connectable && c.connectable[svc]);
     const st = c.status[svc] || 'pending';
     const row = el('div', 'conn-row');
-    row.appendChild(el('span', 'conn-name', svc));
+    row.appendChild(iconFor(svc)); row.appendChild(el('span', 'conn-name', svc));
     if (!real) row.appendChild(el('span', 'conn-badge skipped', "Can't connect yet"));
     else if (st === 'pending') {
       // a real connector that isn't set up yet: paste the key right here
@@ -558,29 +574,73 @@ for (const t of ['text', 'tool', 'answered', 'ask', 'connections', 'done', 'stop
   });
 }
 
+// Tool icons: Simple Icons (CC0, simpleicons.org), for recognition only. null color = the ink colour (brands whose mark is black).
+const ICONS = {
+  'Linear': { color: '#5E6AD2', d: 'M2.886 4.18A11.982 11.982 0 0 1 11.99 0C18.624 0 24 5.376 24 12.009c0 3.64-1.62 6.903-4.18 9.105L2.887 4.18ZM1.817 5.626l16.556 16.556c-.524.33-1.075.62-1.65.866L.951 7.277c.247-.575.537-1.126.866-1.65ZM.322 9.163l14.515 14.515c-.71.172-1.443.282-2.195.322L0 11.358a12 12 0 0 1 .322-2.195Zm-.17 4.862 9.823 9.824a12.02 12.02 0 0 1-9.824-9.824Z' },
+  'Jira': { color: '#0052CC', d: 'M11.571 11.513H0a5.218 5.218 0 0 0 5.232 5.215h2.13v2.057A5.215 5.215 0 0 0 12.575 24V12.518a1.005 1.005 0 0 0-1.005-1.005zm5.723-5.756H5.736a5.215 5.215 0 0 0 5.215 5.214h2.129v2.058a5.218 5.218 0 0 0 5.215 5.214V6.758a1.001 1.001 0 0 0-1.001-1.001zM23.013 0H11.455a5.215 5.215 0 0 0 5.215 5.215h2.129v2.057A5.215 5.215 0 0 0 24 12.483V1.005A1.001 1.001 0 0 0 23.013 0Z' },
+  'Confluence': { color: '#1868DB', d: 'M.87 18.257c-.248.382-.53.875-.763 1.245a.764.764 0 0 0 .255 1.04l4.965 3.054a.764.764 0 0 0 1.058-.26c.199-.332.454-.763.733-1.221 1.967-3.247 3.945-2.853 7.508-1.146l4.957 2.337a.764.764 0 0 0 1.028-.382l2.364-5.346a.764.764 0 0 0-.382-1 599.851 599.851 0 0 1-4.965-2.361C10.911 10.97 5.224 11.185.87 18.257zM23.131 5.743c.249-.405.531-.875.764-1.25a.764.764 0 0 0-.256-1.034L18.675.404a.764.764 0 0 0-1.058.26c-.195.335-.451.763-.734 1.225-1.966 3.246-3.945 2.85-7.508 1.146L4.437.694a.764.764 0 0 0-1.027.382L1.046 6.422a.764.764 0 0 0 .382 1c1.039.49 3.105 1.467 4.965 2.361 6.698 3.246 12.392 3.029 16.738-4.04z' },
+  'Notion': { color: null, d: 'M4.459 4.208c.746.606 1.026.56 2.428.466l13.215-.793c.28 0 .047-.28-.046-.326L17.86 1.968c-.42-.326-.981-.7-2.055-.607L3.01 2.295c-.466.046-.56.28-.374.466zm.793 3.08v13.904c0 .747.373 1.027 1.214.98l14.523-.84c.841-.046.935-.56.935-1.167V6.354c0-.606-.233-.933-.748-.887l-15.177.887c-.56.047-.747.327-.747.933zm14.337.745c.093.42 0 .84-.42.888l-.7.14v10.264c-.608.327-1.168.514-1.635.514-.748 0-.935-.234-1.495-.933l-4.577-7.186v6.952L12.21 19s0 .84-1.168.84l-3.222.186c-.093-.186 0-.653.327-.746l.84-.233V9.854L7.822 9.76c-.094-.42.14-1.026.793-1.073l3.456-.233 4.764 7.279v-6.44l-1.215-.139c-.093-.514.28-.887.747-.933zM1.936 1.035l13.31-.98c1.634-.14 2.055-.047 3.082.7l4.249 2.986c.7.513.934.653.934 1.213v16.378c0 1.026-.373 1.634-1.68 1.726l-15.458.934c-.98.047-1.448-.093-1.962-.747l-3.129-4.06c-.56-.747-.793-1.306-.793-1.96V2.667c0-.839.374-1.54 1.447-1.632z' },
+  'Figma': { color: '#F24E1E', d: 'M15.852 8.981h-4.588V0h4.588c2.476 0 4.49 2.014 4.49 4.49s-2.014 4.491-4.49 4.491zM12.735 7.51h3.117c1.665 0 3.019-1.355 3.019-3.019s-1.355-3.019-3.019-3.019h-3.117V7.51zm0 1.471H8.148c-2.476 0-4.49-2.014-4.49-4.49S5.672 0 8.148 0h4.588v8.981zm-4.587-7.51c-1.665 0-3.019 1.355-3.019 3.019s1.354 3.02 3.019 3.02h3.117V1.471H8.148zm4.587 15.019H8.148c-2.476 0-4.49-2.014-4.49-4.49s2.014-4.49 4.49-4.49h4.588v8.98zM8.148 8.981c-1.665 0-3.019 1.355-3.019 3.019s1.355 3.019 3.019 3.019h3.117V8.981H8.148zM8.172 24c-2.489 0-4.515-2.014-4.515-4.49s2.014-4.49 4.49-4.49h4.588v4.441c0 2.503-2.047 4.539-4.563 4.539zm-.024-7.51a3.023 3.023 0 0 0-3.019 3.019c0 1.665 1.365 3.019 3.044 3.019 1.705 0 3.093-1.376 3.093-3.068v-2.97H8.148zm7.704 0h-.098c-2.476 0-4.49-2.014-4.49-4.49s2.014-4.49 4.49-4.49h.098c2.476 0 4.49 2.014 4.49 4.49s-2.014 4.49-4.49 4.49zm-.097-7.509c-1.665 0-3.019 1.355-3.019 3.019s1.355 3.019 3.019 3.019h.098c1.665 0 3.019-1.355 3.019-3.019s-1.355-3.019-3.019-3.019h-.098z' },
+  'GitHub Issues': { color: null, d: 'M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12' },
+  'Azure DevOps': { color: '#0078D7', d: 'M0 8.877L2.247 5.91l8.405-3.416V.022l7.37 5.393L2.966 8.338v8.225L0 15.707zm24-4.45v14.651l-5.753 4.9-9.303-3.057v3.056l-5.978-7.416 15.057 1.798V5.415z' },
+  'ClickUp': { color: '#7B68EE', d: 'M2 18.439l3.69-2.828c1.961 2.56 4.044 3.739 6.363 3.739 2.307 0 4.33-1.166 6.203-3.704L22 18.405C19.298 22.065 15.941 24 12.053 24 8.178 24 4.788 22.078 2 18.439zM12.04 6.15l-6.568 5.66-3.036-3.52L12.055 0l9.543 8.296-3.05 3.509z' },
+  'Asana': { color: '#F06A6A', d: 'M18.78 12.653c-2.882 0-5.22 2.336-5.22 5.22s2.338 5.22 5.22 5.22 5.22-2.34 5.22-5.22-2.336-5.22-5.22-5.22zm-13.56 0c-2.88 0-5.22 2.337-5.22 5.22s2.338 5.22 5.22 5.22 5.22-2.338 5.22-5.22-2.336-5.22-5.22-5.22zm12-6.525c0 2.883-2.337 5.22-5.22 5.22-2.882 0-5.22-2.337-5.22-5.22 0-2.88 2.338-5.22 5.22-5.22 2.883 0 5.22 2.34 5.22 5.22z' },
+};
+function iconFor(label) {
+  const n = x => String(x || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+  const key = Object.keys(ICONS).find(k => n(k) === n(label)) || Object.keys(ICONS).find(k => n(label) && (n(k).startsWith(n(label)) || n(label).startsWith(n(k))));
+  const i = key && ICONS[key]; const span = el('span', 'tool-icon');
+  if (!i) { span.textContent = (label || '?').charAt(0); return span; }
+  span.innerHTML = `<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="${i.color || 'currentColor'}" d="${i.d}"/></svg>`;
+  return span;
+}
+
 // ---- connections ----
 async function loadConnectors() {
   const r = await api('GET', '/api/connectors');
   const box = $('connectors'); box.innerHTML = '';
-  for (const c of (r && r.connectors) || []) box.appendChild(connectorRow(c));
-  $('comingLater').textContent = r && r.comingLater && r.comingLater.length ? `Coming later: ${r.comingLater.join(', ')}.` : '';
+  const all = (r && r.connectors) || [];
+  const on = all.filter(c => c.status === 'connected'), off = all.filter(c => c.status !== 'connected');
+  if (on.length) { box.appendChild(el('p', 'conn-label', 'Connected')); for (const c of on) box.appendChild(connectorRow(c)); }
+  else box.appendChild(el('p', 'status', 'Nothing connected yet for this project.'));
+  // Every tool we know of, with its icon. A real connector opens its key form; the
+  // rest are honest about not being connectable yet.
+  box.appendChild(el('p', 'conn-label', 'Add a connection'));
+  const tiles = el('div', 'tiles'); box.appendChild(tiles);
+  const slot = el('div'); box.appendChild(slot);
+  for (const c of off) {
+    const t = el('button', 'tile'); t.type = 'button';
+    t.appendChild(iconFor(c.label)); t.appendChild(el('span', 'tile-name', c.label)); t.appendChild(el('span', 'tile-tag', 'Set up'));
+    t.onclick = () => {
+      const open = t.classList.contains('open');
+      tiles.querySelectorAll('.tile.open').forEach(x => x.classList.remove('open')); slot.innerHTML = '';
+      if (open) return;
+      t.classList.add('open'); const f = setupForm(c); slot.appendChild(f); const i = f.querySelector('input'); if (i) i.focus();
+    };
+    tiles.appendChild(t);
+  }
+  for (const label of (r && r.comingLater) || []) {
+    const t = el('button', 'tile'); t.type = 'button'; t.disabled = true; t.title = `${label} can't be connected yet — coming soon`;
+    t.appendChild(iconFor(label)); t.appendChild(el('span', 'tile-name', label)); t.appendChild(el('span', 'tile-tag', 'Soon'));
+    tiles.appendChild(t);
+  }
 }
 function connectorRow(c) {
   const row = el('div', 'connector');
   const head = el('div', 'connector-head');
+  head.appendChild(iconFor(c.label));
   head.appendChild(el('span', 'connector-name', c.label));
-  const state = el('span', 'connector-state' + (c.status === 'connected' ? ' ok' : ''), c.status === 'connected' ? `Connected as ${c.account} ✓` : 'Not set up');
-  head.appendChild(state);
-  const form = el('div', 'connector-form hide');
-  if (c.status === 'connected') {
-    const change = el('button', 'ghost', 'Change key'); change.onclick = () => form.classList.toggle('hide');
-    const off = el('button', 'ghost', 'Disconnect'); off.onclick = async () => { await api('DELETE', `/api/connectors/${c.id}`); loadConnectors(); };
-    head.appendChild(change); head.appendChild(off);
-  } else {
-    const setup = el('button', null, 'Set up'); setup.onclick = () => { form.classList.toggle('hide'); const i = form.querySelector('input'); if (i) i.focus(); };
-    head.appendChild(setup);
-  }
-  row.appendChild(head);
+  head.appendChild(el('span', 'connector-state ok', `Connected as ${c.account} ✓`));
+  const form = setupForm(c, true); form.classList.add('hide');
+  const change = el('button', 'ghost', 'Change key'); change.onclick = () => form.classList.toggle('hide');
+  const off = el('button', 'ghost', 'Disconnect'); off.onclick = async () => { await api('DELETE', `/api/connectors/${c.id}`); loadConnectors(); };
+  head.appendChild(change); head.appendChild(off);
+  row.appendChild(head); row.appendChild(form);
+  return row;
+}
+function setupForm(c, changing) {
+  const form = el('div', changing ? 'connector-form' : 'tile-form');
+  if (!changing) { const h = el('h3'); h.appendChild(iconFor(c.label)); h.appendChild(document.createTextNode(`Connect ${c.label}`)); form.appendChild(h); }
   const inputs = {};
   for (const f of c.fields) {
     form.appendChild(el('label', null, f.label));
@@ -598,8 +658,7 @@ function connectorRow(c) {
     else { err.textContent = (res && res.error) || 'That did not work.'; err.classList.remove('hide'); save.disabled = false; save.textContent = 'Test and save'; }
   };
   acts.appendChild(save); form.appendChild(acts); form.appendChild(err);
-  row.appendChild(form);
-  return row;
+  return form;
 }
 
 // ---- the blueprint home: the page opens ON the latest blueprint ----
@@ -652,12 +711,12 @@ async function showBlueprint(id) {
   meta.appendChild(el('b', null, `${STATUS[m.status] || m.status}${m.current ? ', current' : ''}.`));
   const bits = [m.counts ? countsText(m.counts) : 'No blueprint was written', m.imported ? 'Made before build history was kept' : '', m.basedOn ? 'Built on an earlier blueprint' : ''].filter(Boolean);
   meta.appendChild(document.createTextNode(' ' + bits.join('. ') + '.'));
-  renderAnswers(events, m);
+  renderAnswers(events, m, r.ownerAnswers);
   renderBlueprintConnections(m);
   // the blueprint itself, embedded
   const frame = $('viewFrame');
-  if (m.counts) { $('noBp').classList.add('hide'); frame.classList.remove('hide'); frame.src = viewUrl(id, true); $('fullView').href = viewUrl(id, false); $('fullView').parentElement.classList.remove('hide'); }
-  else { frame.classList.add('hide'); frame.removeAttribute('src'); $('fullView').parentElement.classList.add('hide'); $('noBp').textContent = 'This build did not write a blueprint.'; $('noBp').classList.remove('hide'); }
+  if (m.counts) { $('noBp').classList.add('hide'); frame.classList.remove('hide'); frame.src = viewUrl(id, true); $('fullView').href = viewUrl(id, false); $('fullView').classList.remove('hide'); }
+  else { frame.classList.add('hide'); frame.removeAttribute('src'); $('fullView').classList.add('hide'); $('noBp').textContent = 'This build did not write a blueprint.'; $('noBp').classList.remove('hide'); }
   // its log
   const box = $('histLog'); box.textContent = '';
   const write = t => { box.textContent += t.endsWith('\n') ? t : t + '\n'; };
@@ -667,10 +726,15 @@ async function showBlueprint(id) {
 window.addEventListener('message', e => { if (e.data && e.data.smartmonkeyViewHeight) $('viewFrame').style.height = (e.data.smartmonkeyViewHeight + 8) + 'px'; });
 
 // Every question the build asked, with all its options and what was picked.
-function renderAnswers(events, m) {
+function renderAnswers(events, m, ownerAnswers) {
   const box = $('answers'); box.innerHTML = '';
   const asks = {}; for (const ev of events) if (ev.type === 'ask') asks[ev.data.id] = ev.data;
-  const answered = events.filter(ev => ev.type === 'answered').map(ev => ev.data);
+  let answered = events.filter(ev => ev.type === 'answered').map(ev => ev.data);
+  // made before build history: the answers on record from when it was built (the options offered weren't kept)
+  if (!answered.length && ownerAnswers && ownerAnswers.length) {
+    box.appendChild(el('p', 'qa-note', 'What you answered while this blueprint was being built. The options you were offered weren\'t recorded back then — only your answer.'));
+    answered = ownerAnswers.map(a => ({ question: a.question, picked: a.picked || [a.answer], options: [] }));
+  }
   if (!answered.length) {
     box.appendChild(el('p', 'status', m.imported ? 'This blueprint was made before SmartMonkey recorded answers.' : 'No questions were answered in this build.'));
     return;
@@ -686,6 +750,7 @@ function renderAnswers(events, m) {
     if (options.length) row.appendChild(opts);
     const other = picked.filter(p => !options.includes(p));
     if (!picked.length) row.appendChild(el('p', 'qa-note', 'Skipped.'));
+    else if (!options.length) { const o = el('div', 'qa-opts'); for (const x of picked) o.appendChild(el('span', 'qa-opt on', x)); row.appendChild(o); }
     else if (other.length) row.appendChild(el('p', 'qa-note', `Your own answer: ${other.join(', ')}`));
     box.appendChild(row);
   }

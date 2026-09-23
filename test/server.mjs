@@ -778,5 +778,34 @@ await check('a re-run pre-selects last time\'s choice, even when the agent rewor
   app.server.close();
 });
 
+await check('the app always serves its OWN view.html, never an older copy sitting in smartmonkey/', async () => {
+  const cwd = mkdtempSync(join(tmpdir(), 'sm-app-'));
+  mkdirSync(join(cwd, 'smartmonkey'), { recursive: true });
+  writeFileSync(join(cwd, 'smartmonkey', 'view.html'), '<html>OLD COPY</html>');
+  const app = createApp({ cwd, secrets: makeSecrets({ platform: 'win32' }) });
+  const port = await app.listen(0);
+  const r = await new Promise(res => http.get({ host: '127.0.0.1', port, path: '/view.html' }, x => { let b = ''; x.on('data', c => b += c); x.on('end', () => res(b)); }));
+  assert.doesNotMatch(r, /OLD COPY/); assert.match(r, /embed/);
+  app.server.close();
+});
+
+await check('a blueprint from before build history shows the answers given while it was built (and none from later)', async () => {
+  const cwd = mkdtempSync(join(tmpdir(), 'sm-app-'));
+  const kit = join(cwd, 'smartmonkey'); mkdirSync(kit, { recursive: true });
+  writeFileSync(join(kit, 'blueprint.json'), JSON.stringify({ smartmonkeyBlueprint: 1, screens: [] }));
+  const soon = new Date(Date.now() - 60_000).toISOString(), later = new Date(Date.now() + 3_600_000).toISOString();
+  writeFileSync(join(kit, 'owner-answers.json'), JSON.stringify({ answers: [
+    { question: 'Which build?', answer: 'devDebug', at: soon },
+    { question: 'Asked in a later build', answer: 'x', at: later },
+  ] }));
+  const app = createApp({ cwd, secrets: makeSecrets({ platform: 'win32' }) });
+  const port = await app.listen(0);
+  const [b] = (await req(port, 'GET', '/api/builds')).json.builds;
+  assert.equal(b.imported, true);
+  const one = (await req(port, 'GET', `/api/builds/${b.id}`)).json;
+  assert.deepEqual(one.ownerAnswers.map(a => a.question), ['Which build?']);
+  app.server.close();
+});
+
 if (failures) { console.error(`\n${failures} failure(s)`); process.exit(1); }
 console.log('\nserver: all passed');

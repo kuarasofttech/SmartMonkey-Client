@@ -259,7 +259,13 @@ export function createApp({ cwd = process.cwd(), secrets = makeSecrets(), modelF
     if (bm) {
       const id = decodeURIComponent(bm[1]);
       try {
-        if (method === 'GET' && !bm[2]) return sendJson(res, builds.get(id));
+        if (method === 'GET' && !bm[2]) {
+          const b = builds.get(id);
+          // A blueprint from before build history has no answer events — but the answers
+          // given while it was built are on record: everything up to when it was written.
+          if (b.meta.imported) { const until = Date.parse(b.meta.finishedAt) + 5 * 60_000; b.ownerAnswers = loadOwnerAnswers().filter(a => a.at && Date.parse(a.at) <= until); }
+          return sendJson(res, b);
+        }
         if (method === 'POST' && bm[2]) { if (session.running) return sendJson(res, { error: 'a build is running' }, 409); builds.makeCurrent(id); return sendJson(res, { ok: true }); }
         if (method === 'DELETE' && !bm[2]) { builds.remove(id); return sendJson(res, { ok: true }); }
       } catch (e) {
@@ -368,6 +374,9 @@ export function createApp({ cwd = process.cwd(), secrets = makeSecrets(), modelF
     if (method === 'GET') {
       if (path === '/' || path === '') return serveFile(res, join(ASSETS, 'app.html'));
       const rel = decodeURIComponent(path).replace(/^\/+/, '');
+      // the app's own pages always come from the app — an older copy in smartmonkey/ (from the
+      // pasted-prompt kit) would otherwise shadow it and miss newer features like embed mode
+      if (rel === 'view.html') return serveFile(res, join(ASSETS, rel));
       const kitFile = join(KIT, rel);
       if ((kitFile === KIT || kitFile.startsWith(KIT + sep)) && existsSync(kitFile) && !statSync(kitFile).isDirectory()) return serveFile(res, kitFile);
       const assetFile = join(ASSETS, rel);
