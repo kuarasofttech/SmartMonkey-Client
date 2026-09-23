@@ -10,6 +10,7 @@ import { fileURLToPath } from 'node:url';
 import { spawn } from 'node:child_process';
 import { randomBytes, createHash } from 'node:crypto';
 import { suggestFor, previousAnswers } from './prefill.mjs';
+import { makePackageStore, LIMITS as PACKAGE_LIMITS, TYPES as PACKAGE_TYPES } from './package.mjs';
 import { makeWebAsk, answerAsk, makeWebConnections, setConnection, startConnections } from './webask.mjs';
 import { makePopTerminalRunCli } from './terminal.mjs';
 import { makeHeadlessRunCli } from './headless.mjs';
@@ -27,6 +28,13 @@ const PROMPT = () => readFileSync(join(ASSETS, 'builder-prompt.md'), 'utf8');
 const MIME = { '.html': 'text/html; charset=utf-8', '.json': 'application/json', '.mjs': 'text/javascript', '.js': 'text/javascript', '.css': 'text/css', '.md': 'text/markdown; charset=utf-8', '.svg': 'image/svg+xml', '.png': 'image/png' };
 
 const readBody = req => new Promise((res) => { let b = ''; req.on('data', c => { if (b.length <= 4_000_000) b += c; }); req.on('end', () => { try { res(b ? JSON.parse(b) : {}); } catch { res({}); } }); });
+// Raw bytes (a file being added to the package), capped — over the cap is a 413, not a truncated file.
+const readRaw = (req, max) => new Promise((resolve, reject) => {
+  const parts = []; let n = 0, over = false;
+  req.on('data', c => { n += c.length; if (n > max) over = true; else parts.push(c); });
+  req.on('end', () => (over ? reject(Object.assign(new Error('too large'), { status: 413 })) : resolve(Buffer.concat(parts))));
+  req.on('error', reject);
+});
 const sendJson = (res, obj, code = 200) => { res.writeHead(code, { 'content-type': 'application/json' }); res.end(JSON.stringify(obj)); };
 const writeSse = (res, ev) => res.write(`event: ${ev.type}\ndata: ${JSON.stringify(ev.data)}\n\n`);
 
@@ -61,6 +69,7 @@ export function createApp({ cwd = process.cwd(), secrets = makeSecrets(), modelF
   const KIT = join(resolve(cwd), 'smartmonkey');
   const INTERVIEW = join(KIT, 'interview.json');
   const builds = makeBuildStore(KIT);
+  const pkg = makePackageStore(KIT);
 
   // ---- connections: the app holds the keys (OS keychain) and makes the calls; the agent never sees a key ----
   // Keys are PER PROJECT: one app's Linear workspace is never used for another project.
@@ -278,6 +287,37 @@ export function createApp({ cwd = process.cwd(), secrets = makeSecrets(), modelF
       } catch (e) {
         return sendJson(res, { error: e.message }, /unknown build|no such open question/.test(e.message) ? 404 : /list|no blueprint/.test(e.message) ? 400 : 409);
       }
+    }
+
+    // ---- the package: hand-added docs + screenshots, and the one .zip that goes to SmartMonkey ----
+    if (path === '/api/package' && method === 'GET') {
+      return sendJson(res, { files: pkg.list(), totals: pkg.totals(), limits: PACKAGE_LIMITS, types: PACKAGE_TYPES });
+    }
+    if (path === '/api/package' && method === 'POST') {   // raw bytes; ?name=<original file name>
+      const name = url.searchParams.get('name') || '';
+      try {
+        const data = await readRaw(req, PACKAGE_LIMITS.fileBytes);
+        const added = pkg.add(name, data);
+        builds.ensureGitignore();
+        return sendJson(res, { ok: true, file: added, totals: pkg.totals() });
+      } catch (e) { return sendJson(res, { error: e.status === 413 ? `${name} is over ${PACKAGE_LIMITS.fileBytes / 1024 / 1024} MB` : e.message }, e.status || 400); }
+    }
+    const pm = path.match(/^\/api\/package\/(doc|screenshot)\/(.+)$/);
+    if (pm && method === 'DELETE') {
+      try { pkg.remove(pm[1], decodeURIComponent(pm[2])); return sendJson(res, { ok: true, totals: pkg.totals() }); }
+      catch (e) { return sendJson(res, { error: e.message }, 404); }
+    }
+    const zm = path.match(/^\/api\/builds\/([\w-]+)\/package$/);
+    if (zm && method === 'GET') {
+      try {
+        const id = zm[1], dir = join(KIT, 'builds', id);
+        builds.get(id);   // unknown build → throws
+        const zip = pkg.build({ blueprintPath: join(dir, 'blueprint.json'), casesPath: join(dir, 'cases.json'), project: basename(cwd), buildId: id });
+        const d = new Date(), day = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;   // the tester's own date, not UTC
+        const file = `smartmonkey-${basename(cwd).replace(/[^\w.-]+/g, '-')}-${day}.zip`;
+        res.writeHead(200, { 'content-type': 'application/zip', 'content-disposition': `attachment; filename="${file}"`, 'content-length': zip.length });
+        return res.end(zip);
+      } catch (e) { return sendJson(res, { error: e.message }, /unknown build/.test(e.message) ? 404 : 409); }
     }
 
     if (path === '/api/interview' && method === 'GET') {

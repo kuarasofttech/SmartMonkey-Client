@@ -15,7 +15,7 @@ import { join } from 'node:path';
 import { randomBytes } from 'node:crypto';
 
 const OUTPUTS = ['blueprint.json', 'cases.json'];
-const GITIGNORE_LINES = ['builds/', 'owner-answers.json'];
+const GITIGNORE_LINES = ['builds/', 'owner-answers.json', 'package/'];   // package/: hand-added docs + screenshots (may hold personal data)
 const SAFE_ID = /^[\w-]+$/;
 
 export function makeBuildStore(kit, { now = () => new Date(), rand = () => randomBytes(2).toString('hex') } = {}) {

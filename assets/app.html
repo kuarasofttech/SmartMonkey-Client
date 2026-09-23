@@ -239,6 +239,25 @@
   .pane-intro { margin:0 0 18px; }
   #paneLog .logbox { max-height:none; }
   #paneAnswers .rebuild-bar { background:var(--paper); margin:18px 0 0; padding:14px 0; }
+  .btn-link { display:inline-flex; align-items:center; padding:9px 16px; border-radius:8px; background:var(--brand); color:var(--on-brand); font-weight:600; font-size:14px; text-decoration:none; }
+  .btn-link:hover { background:var(--brand-hi); }
+  .pkg-foot .btn { display:inline-flex; padding:10px 18px; border-radius:8px; background:var(--brand); color:var(--on-brand); font-weight:600; text-decoration:none; }
+  #panePackage { max-width:860px; }
+  .drop { position:relative; display:flex; flex-direction:column; gap:4px; margin:0; padding:22px 20px; border:1.5px dashed var(--line); border-radius:10px; background:var(--surface); cursor:pointer; transition:border-color .15s, background .15s; }
+  .drop:hover, .drop.over { border-color:var(--brand); background:var(--brand-soft); }
+  .drop b { font-size:15px; color:var(--ink); }
+  .drop span { font-size:13px; color:var(--slate); }
+  .drop input { position:absolute; inset:0; opacity:0; cursor:pointer; }
+  .drop:has(input:focus-visible) { outline:2px solid var(--brand); outline-offset:2px; }
+  .pkg-list { list-style:none; margin:16px 0 0; padding:0; }
+  .pkg-list li { display:flex; align-items:center; gap:12px; padding:10px 0; border-top:1px solid var(--line-2); font-size:14px; }
+  .pkg-list li:first-child { border-top:0; }
+  .pkg-kind { flex:none; width:92px; font-size:12px; font-weight:600; color:var(--slate); }
+  .pkg-name { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--ink); }
+  .pkg-size { flex:none; font-size:12px; color:var(--slate); }
+  .pkg-list .fixed { color:var(--slate); }
+  .pkg-foot { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-top:18px; padding-top:14px; border-top:1px solid var(--line); }
+  #pkgErr { color:var(--bad); }
   .panel-head { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:4px; }
   .ws-head { display:flex; align-items:center; justify-content:space-between; gap:16px; flex-wrap:wrap; flex:none; }
   .ws-title { min-width:0; }
@@ -285,7 +304,7 @@
 
     <div class="side-foot">
       <button id="settingsBtn" class="ghost">Your AI</button>
-      <p class="privacy"><span class="dot"></span><span><b>Stays on this machine.</b> Only the blueprint you approve is shared.</span></p>
+      <p class="privacy"><span class="dot"></span><span><b>Stays on this machine.</b> Only the package you download — the blueprint and the files you add — is shared.</span></p>
     </div>
   </aside>
 
@@ -345,6 +364,7 @@
         <button id="buildOn" class="ghost hide">Build on this</button>
         <button id="makeCurrent" class="ghost hide">Make current</button>
         <button id="deleteBp" class="ghost hide">Delete</button>
+        <a class="btn-link hide" id="downloadPkg" href="#" download>Download package</a>
       </div>
     </header>
 
@@ -369,6 +389,7 @@
       <div class="tabs" role="tablist" aria-label="Blueprint views">
         <button role="tab" class="tab" id="tabBlueprint" data-pane="paneBlueprint" aria-selected="true">Blueprint</button>
         <button role="tab" class="tab" id="tabAnswers" data-pane="paneAnswers" aria-selected="false">Your answers <span class="tab-n hide" id="changedN"></span></button>
+        <button role="tab" class="tab" id="tabPackage" data-pane="panePackage" aria-selected="false">Package <span class="tab-n hide" id="pkgN"></span></button>
         <button role="tab" class="tab" id="tabLog" data-pane="paneLog" aria-selected="false">Build log</button>
         <a class="tab-link" id="fullView" href="#" target="_blank">Open in its own tab</a>
       </div>
@@ -387,6 +408,17 @@
           <button class="ghost hide" id="resetAnswers">Undo changes</button>
           <button id="rebuild">Rebuild</button>
         </div>
+      </section>
+      <section class="pane hide" id="panePackage" role="tabpanel" aria-labelledby="tabPackage">
+        <p class="sub pane-intro">What goes to SmartMonkey, in one .zip: this blueprint, its test cases if it has any, and the documents and screenshots you add here. Nothing is added for you — only what you put here leaves this machine.</p>
+        <label class="drop" id="pkgDrop">
+          <input type="file" id="pkgInput" multiple accept=".md,.txt,.pdf,.html,.htm,.csv,.json,.png,.jpg,.jpeg,.webp">
+          <b>Add documents or screenshots</b>
+          <span>Drop files here or click to choose. Specs, test plans, notes (.md .txt .pdf .html .csv .json) and screenshots of the app (.png .jpg .webp). Up to 10 MB each, 50 MB in all.</span>
+        </label>
+        <p class="status hide" id="pkgErr" role="alert"></p>
+        <ul class="pkg-list" id="pkgList"></ul>
+        <div class="pkg-foot"><span class="status" id="pkgTotals"></span><a class="btn" id="downloadPkg2" href="#" download>Download package</a></div>
       </section>
       <section class="pane hide" id="paneLog" role="tabpanel" aria-labelledby="tabLog">
         <div id="secLog"><div id="histLog" class="logbox"></div></div>
@@ -848,6 +880,7 @@ async function showBlueprint(id) {
   const bits = [m.counts ? countsText(m.counts) : 'No blueprint was written', m.imported ? 'Made before build history was kept' : '', m.basedOn ? 'Built on an earlier blueprint' : ''].filter(Boolean);
   meta.appendChild(document.createTextNode(' ' + bits.join('. ') + '.'));
   renderAnswers(events, m, r.ownerAnswers);
+  loadPackage();
   renderBlueprintConnections(m);
   // the blueprint itself, embedded
   const frame = $('viewFrame');
@@ -941,6 +974,52 @@ function syncRebuild() {
   $('resetAnswers').classList.toggle('hide', !n);
   $('changedN').textContent = n ? `${n} changed` : ''; $('changedN').classList.toggle('hide', !n);
 }
+// ---- the package: blueprint + cases + the files the tester adds, as one .zip ----
+const fmtBytes = n => n < 1024 ? `${n} B` : n < 1048576 ? `${Math.round(n / 1024)} KB` : `${(n / 1048576).toFixed(1)} MB`;
+async function loadPackage() {
+  const r = await api('GET', '/api/package'); if (!r || !r.files) return;
+  const b = BUILDS.find(x => x.id === SELECTED), hasBp = !!(b && b.counts);
+  let hasCases = false;
+  if (hasBp) { try { hasCases = (await fetch(`/builds/${encodeURIComponent(SELECTED)}/cases.json`, { method: 'GET' })).ok; } catch {} }
+  const ul = $('pkgList'); ul.innerHTML = '';
+  const fixed = (kind, name, note) => { const li = el('li', 'fixed'); li.appendChild(el('span', 'pkg-kind', kind)); li.appendChild(el('span', 'pkg-name', name)); li.appendChild(el('span', 'pkg-size', note)); ul.appendChild(li); };
+  if (hasBp) fixed('Blueprint', 'blueprint.json', 'always included');
+  if (hasCases) fixed('Test cases', 'cases.json', 'from this build');
+  for (const f of r.files) {
+    const li = el('li');
+    li.appendChild(el('span', 'pkg-kind', f.kind === 'doc' ? 'Document' : 'Screenshot'));
+    li.appendChild(el('span', 'pkg-name', f.name)); li.lastChild.title = f.name;
+    li.appendChild(el('span', 'pkg-size', fmtBytes(f.bytes)));
+    const rm = el('button', 'ghost', 'Remove'); rm.type = 'button';
+    rm.setAttribute('aria-label', `Remove ${f.name}`);
+    rm.onclick = async () => { rm.disabled = true; await api('DELETE', `/api/package/${f.kind}/${encodeURIComponent(f.name)}`); loadPackage(); };
+    li.appendChild(rm); ul.appendChild(li);
+  }
+  const n = r.files.length;
+  $('pkgN').textContent = n ? String(n) : ''; $('pkgN').classList.toggle('hide', !n);
+  $('pkgTotals').textContent = n ? `${plural(n, 'file', 'files')} added · ${fmtBytes(r.totals.bytes)} of ${fmtBytes(r.limits.totalBytes)}` : 'No files added — the package holds the blueprint only.';
+  const href = `/api/builds/${encodeURIComponent(SELECTED || '')}/package`;
+  for (const id of ['downloadPkg', 'downloadPkg2']) { $(id).href = href; $(id).classList.toggle('hide', !hasBp); }
+}
+async function addPackageFiles(files) {
+  $('pkgErr').classList.add('hide');
+  const errs = [];
+  for (const f of files) {
+    try {
+      const res = await fetch(`/api/package?name=${encodeURIComponent(f.name)}`, { method: 'POST', body: f });
+      const j = await res.json().catch(() => ({}));
+      if (!res.ok) errs.push(j.error || `${f.name}: could not be added`);
+    } catch (e) { errs.push(`${f.name}: ${e.message}`); }
+  }
+  if (errs.length) { $('pkgErr').textContent = errs.join(' · '); $('pkgErr').classList.remove('hide'); }
+  $('pkgInput').value = '';
+  loadPackage();
+}
+$('pkgInput').onchange = e => addPackageFiles([...e.target.files]);
+for (const ev of ['dragenter', 'dragover']) $('pkgDrop').addEventListener(ev, e => { e.preventDefault(); $('pkgDrop').classList.add('over'); });
+for (const ev of ['dragleave', 'drop']) $('pkgDrop').addEventListener(ev, () => $('pkgDrop').classList.remove('over'));
+$('pkgDrop').addEventListener('drop', e => { e.preventDefault(); addPackageFiles([...e.dataTransfer.files]); });
+
 // Tabs: one view at a time. The choice is remembered (per browser) — a convenience only.
 function showTab(id) {
   for (const t of document.querySelectorAll('.tab')) { const on = t.id === id; t.setAttribute('aria-selected', on ? 'true' : 'false'); $(t.dataset.pane).classList.toggle('hide', !on); }
